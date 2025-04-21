@@ -18,9 +18,17 @@ typedef struct vec3Padded {
     float z;
     uint32 pad <hidden=true>;
 };
+typedef struct vec4 {
+    float x;
+    float y;
+    float z;
+    float w;
+};
+
 string ReadVec3(vec3 &v) { return Str("%f %f %f", v.x, v.y, v.z); }
 string ReadVec3P(vec3Padded &v) { return Str("%f %f %f", v.x, v.y, v.z); }
 string ReadFixedWString(FixedWString &wstr) { return exists(wstr.str) ? wstr.str : "-----"; }
+string ReadVec4(vec4 &v) { return Str("%f %f %f %f", v.x, v.y, v.z, v.w); }
 
 void align(int n) {
     if (FTell()%n == 0) return;

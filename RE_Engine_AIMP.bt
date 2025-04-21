@@ -6,7 +6,7 @@
 //   Version: 0.1
 //   Purpose:
 //  Category: RE Engine
-// File Mask: *.aiwayp.*|*.aiwaypmgr.*|*.ainvm.*|*.aimap.*|*.aivspc.*
+// File Mask: *.aimap.*|*.aiwayp.*|*.ainvm.*|*.aivspc.*|*.aiwaypmgr.*|*.ainvmmgr.*
 //  ID Bytes: 41 49 4D 50
 //   History:
 //------------------------------------------------
@@ -20,22 +20,23 @@ local int isNavmesh = Strstr(GetFileName(), ".ainvm.") != -1;
 local int isVolumeSpace = Strstr(GetFileName(), ".aivspc.") != -1;
 local int isWaypoint = !isWaypointManager && !isNavmesh && !isMap && !isVolumeSpace;
 
-local int format28 = (isMap && version == 28); // dmc5
-local int format41 = (isMap && version == 41); // re2 rt
-local int format43 = (isWaypoint && version == 5 || isVolumeSpace && version == 6); // re4
+local int format28 = (isMap && version <= 28); // dmc5(28), re2(27)
+local int format41 = (isMap && version == 41 || isWaypoint && version == 3); // re2 rt, re8
+local int format43 = (isWaypoint && version == 5 || isVolumeSpace && version == 6 || isMap && version == 43 || isNavmesh && version == 18); // re4
 // dd2, wilds - based on aimapattr version
 local int format46 = (isWaypoint && version > 6 || isWaypointManager && version >= 8 || isNavmesh && version >= 30);
+local int format = format28 ? 28 : format41 ? 41 : format43 ? 43 : 46;
 
 uint magic;
 FixedWString name <read=ReadFixedWString>;
 
-if (!format28 && !format41) {
+if (format > 41) {
     FixedWString hash <read=ReadFixedWString>;
 }
 
 uint32 num; // likely flags
 
-if (format28 || format41 || format43) {
+if (format < 46) {
     GUID guid;
     int ukn;
 } else if (format46) {
@@ -49,13 +50,9 @@ uint64 layersOffset;
 uint64 rszOffset;
 
 uint64 embeddedContentOffset;
-if (format41) {
-    uint64 contentGroup1Offset;
-} else {
-    uint64 count;
-}
+uint64 contentGroup1Offset;
 
-uint64 nodeParentTblOffset;
+uint64 indexDataOffset;
 
 uint64 secondContentGroupOffset, secondNodeTableOffset;
 
@@ -67,14 +64,14 @@ struct ContentGroupBounds {
 
 struct TriangleData {
     uint32 triangleCount;
-    uint32 lastIndex;
-    uint32 ukn;
+    uint32 maxIndex;
+    if (format >= 41) uint32 minIndex;
 
     struct TriangleInfo {
         uint32 uknId;
         uint32 index;
         uint32 id, n1, n2, n3, neighborCount, n4;
-    } Triangles[triangleCount] <read=(Str("%d", id)), optimize=false>;
+    } Triangles[triangleCount] <read=(Str("%d %d [%d]  %d", index, id, n4, neighborCount)), optimize=false>;
 
     local int triCount = 0;
     struct {
@@ -87,7 +84,8 @@ struct TriangleData {
                 triCount += Triangles[i].neighborCount;
                 struct {
                     uint32 index;
-                    uint32 triangleIndex, neighborIndex, n3, n4, n5, n6;
+                    uint32 triangleIndex, neighborIndex;
+                    uint32 n3, n4, n5, n6;
                 } connections[Triangles[i].neighborCount] <read=(Str("%d - %d    %d %d %d %d", triangleIndex, neighborIndex, n3, n4, n5, n6))>;
             } TriangleNeighbors <read=Str("%d - %d", connections[0].triangleIndex, connections[0].neighborIndex)>;
         }
@@ -102,44 +100,12 @@ struct TypedIntData {
     if (typesCount4 > 0) uint32 type4[typesCount4];
 };
 
+
 struct ContentGroupMapPointHeader(uint32 count) {
     struct { // via.navigation.map.NodeInfo - position and normals?
-        vec3 pos;
-        vec3 normal;
-    } nodes[count];
-};
-
-struct ContentGroupMapPoint {
-    uint32 a, b;
-    uint connectionCount, maxConnectionId;
-    struct {
-        uint32 id, n2, n3, n4, n5, n6, n7, n8;
-    } connections[connectionCount] <read=(Str("%d %d %d %d %d %d %d %d", id, n2, n3, n4, n5, n6, n7, n8))>;
-
-    uint32 newcount;
-
-    typedef uint32 UknownId;
-    local uint64 count = 0;
-
-    if (newcount > 0) {
-        struct {
-            uint id, connectionId, n3, n4, n5, n6, n7;
-        } connectionInfo[newcount] <read=(Str("%d %d %d %d %d %d %d", id, connectionId, n3, n4, n5, n6, n7))>;
-    }
-
-    if (ReadFloat() != 1) {
-        uint32 padding;
-    }
-
-    ContentGroupBounds bounds;
-
-    TypedIntData data;
-
-    if (exists(nodeParentTblOffset)) {
-        FSeek(nodeParentTblOffset);
-    }
-
-    uint32 nodeParentTbl[connectionCount];
+        vec3 pos <read=ReadVec3>;
+        vec3 normal <read=ReadVec3>;
+    } nodes[count] <read=ReadVec3(pos)>;
 };
 
 struct ContentGroupTrianglesHeader(uint32 count) {
@@ -148,16 +114,6 @@ struct ContentGroupTrianglesHeader(uint32 count) {
         ubyte flags[4];
         vec3 pos <read=(Str("%f %f %f",x, y, z))>;
     } TriangleNode[count]  <read=(Str("%d %d %d   : %f %f %f", ind[0], ind[1], ind[2], pos.x, pos.y, pos.z))>;
-};
-
-struct ContentGroupTriangles {
-    uint32 positionCount;
-    vec3Padded Positions[positionCount] <read=ReadVec3P>;
-
-    TriangleData Triangles;
-
-    ContentGroupBounds bounds;
-    TypedIntData data;
 };
 
 struct ContentGroupPolygonHeader(uint32 count) {
@@ -171,15 +127,6 @@ struct ContentGroupPolygonHeader(uint32 count) {
     } Polygons[count] <optimize=false, read=pointCount>;
 };
 
-struct ContentGroupPolygon {
-    uint32 positionCount;
-    vec3Padded positions[positionCount] <read=ReadVec3P>;
-
-    TriangleData Triangles;
-    ContentGroupBounds bounds;
-    TypedIntData data;
-};
-
 struct ContentGroupMapBoundaryHeader(uint32 count) {
     struct {
         uint32 indices[8];
@@ -189,9 +136,38 @@ struct ContentGroupMapBoundaryHeader(uint32 count) {
 
 struct ContentGroupMapAABBHeader(uint32 count) {
     struct {
-        uint8 inices[8];
-        uint32 data[13];
-    } boundaries[count];
+        uint8 indices[8];
+        if (format > 28)
+            uint32 data[13];
+    } boundaries[count] <optimize=false>;
+};
+
+struct ContentGroupWallHeader(uint32 count) {
+    struct {
+		vec4 m1 <read=ReadVec4>, m2 <read=ReadVec4>, m3 <read=ReadVec4>, m4 <read=ReadVec4>;
+
+		vec4 scale <read=ReadVec4>, rot <read=ReadVec4>, pos <read=ReadVec4>;
+		uint32 data[8];
+    } boundaries[count] <read=Str("%d %d %d %d %d %d", data[0], data[1], data[2], data[3], data[4], data[5])>;
+};
+
+struct ContentGroupBody {
+    uint32 positionCount;
+    if (positionCount > 0) {
+        vec3Padded positions[positionCount] <read=ReadVec3P>;
+    }
+    TriangleData Triangles;
+};
+
+struct ContentGroupBodyEmbed {
+    uint32 positionCount;
+    if (positionCount > 0) {
+        struct {
+            uint32 indices[4];
+            vec3Padded position <read=ReadVec3P>;
+        } positions[positionCount];
+    }
+    TriangleData Triangles;
 };
 
 struct ContentGroupNull {
@@ -209,84 +185,53 @@ typedef struct ContentGroupItemHeaderData(uint32 count, wchar_t classname[]) {
         ContentGroupMapBoundaryHeader data(count);
     } else if (classname == "via.navigation.map.ContentGroupMapAABB") {
         ContentGroupMapAABBHeader data(count);
+    } else if (classname == "via.navigation.map.ContentGroupWall") {
+        ContentGroupWallHeader data(count);
     } else {
-        ContentGroupNull data;
+        ContentGroupNull TODO;
     }
 };
+
 typedef struct ContentGroupItemHeader {
     FixedWString classname <read=str>;
 	uint32 count;
     ContentGroupItemHeaderData data(count, classname.str);
-    /*
-    if (WStringToString(classname.str) == "via.navigation.map.ContentGroupMapPoint") {
-        ContentGroupMapPointHeader data(count);
-    } else if (WStringToString(classname.str) == "via.navigation.map.ContentGroupTriangle") {
-        ContentGroupTrianglesHeader data(count);
-    } else if (WStringToString(classname.str) == "via.navigation.map.ContentGroupPolygon") {
-        ContentGroupPolygonHeader data(count);
-    } else if (WStringToString(classname.str) == "via.navigation.map.ContentGroupMapBoundary") {
-        ContentGroupMapBoundaryHeader data(count);
-    } else if (WStringToString(classname.str) == "via.navigation.map.ContentGroupMapAABB") {
-        ContentGroupMapAABBHeader data(count);
-    } else {
-        ContentGroupNull data;
-    }
-    */
-};
-
-typedef struct ContentGroupItem(wchar_t classname[]) {
-    if (classname == "via.navigation.map.ContentGroupMapPoint") {
-        ContentGroupMapPoint points;
-    } else if (classname == "via.navigation.map.ContentGroupTriangle") {
-        ContentGroupTriangles trianglesData;
-    } else if (classname == "via.navigation.map.ContentGroupPolygon") {
-        ContentGroupPolygon polygons;
-    } else if (classname == "via.navigation.map.ContentGroupMapBoundary") {
-        // no data
-    } else if (classname == "via.navigation.map.ContentGroupMapAABB") {
-        // no data
-    } else {
-        ContentGroupNull todo;
-    }
-};
-
-typedef struct ContentGroupEmpty {
-    uint32 empty[6];
-    uint32 d;
-    ContentGroupBounds bounds;
 };
 
 struct ContentGroupContainer {
     uint32 contentCount;
-    // DD2 appdata\field\env_993\navimesh_993_event_16.ainvm.30 - contentCount == 2 (triangles + boundary)
     if (contentCount == 0) {
-        ContentGroupEmpty empty;
-        return;
+        uint32 a, b, c, d, e;
+    } else {
+        local int i = 0;
+        for (i = 0; i < contentCount; ++i) {
+            ContentGroupItemHeader header <optimize=false, read=classname.str>;
+        }
+
+	    uint32 something; //seems to be always 0
+        ContentGroupBody data;
     }
-    // TODO: handle contentCount > 1 (e.g. wilds Npc_NPC.ainvm)
-    // structure looks like classname1, node_count1, nodes1, classname2, node_count2, nodes2, node_data, ...
-    local int i = 0;
-    for (i = 0; i < contentCount; ++i) {
-        ContentGroupItemHeader header <optimize=false, read=classname.str>;
+
+    // god knows what this is, using the bounds Vector4's padding bytes as an indicator
+    if (ReadInt(FTell() + sizeof(ContentGroupBounds) - 4) != 0 || ReadInt(FTell() + sizeof(ContentGroupBounds) - 4 - sizeof(vec3Padded)) != 0) {
+        uint32 mysteryPadding <read="YES">;
     }
-	uint32 something;
-    for (i = 0; i < contentCount; ++i) {
-        ContentGroupItem body(header[i].classname.str);
-    }
+
+    ContentGroupBounds bounds;
+    TypedIntData quadData;
 };
 
 string ReadContentGroup(ContentGroupContainer &grp) { return exists(grp.header[0].classname.str) ? grp.header[0].classname.str : "---"; }
 
+// some files have no content groups at all (DMC5)
 if (exists(contentGroup1Offset) && contentGroup1Offset > 0) {
     FSeek(contentGroup1Offset);
-    ContentGroupContainer ContentGroup1 <read=ReadContentGroup>;
-} else if (exists(nodeParentTblOffset) && nodeParentTblOffset > 0) {
     ContentGroupContainer ContentGroup1 <read=ReadContentGroup>;
 }
 
 if (secondContentGroupOffset > 0 && secondNodeTableOffset) {
     FSeek(secondContentGroupOffset);
-    ContentGroupContainer ContentGroup2 <read=ReadContentGroup>;
+	ContentGroupContainer ContentGroup2 <read=ReadContentGroup>;
 }
 
 struct CountedIndices {
@@ -297,34 +242,34 @@ struct CountedIndices {
 };
 
 struct ContentGroupOffsetData(ContentGroupItemHeader &header) {
-    if (header.classname.str == "via.navigation.map.ContentGroupTriangle") {
+    if (header.classname.str == "via.navigation.map.ContentGroupMapPoint") {
+        uint32 nodeParentIds[header.count];
+    } else if (header.classname.str == "via.navigation.map.ContentGroupTriangle") {
         uint32 triangleData[header.count];
     } else if (header.classname.str == "via.navigation.map.ContentGroupPolygon") {
         CountedIndices polygonTriangleIndices[header.count] <optimize=false, read=count>;
     } else if (header.classname.str == "via.navigation.map.ContentGroupMapBoundary") {
         uint32 masksOrSomething[header.count];
+    } else if (header.classname.str == "via.navigation.map.ContentGroupWall") {
+        uint32 masksOrSomething[header.count];
     } else if (header.classname.str == "via.navigation.map.ContentGroupMapAABB") {
-        struct {
-            uint32 a, b;
-        } aabbData[header.count] <read=Str("%d %d", a, b)>;
+        CountedIndices aabbData[header.count] <optimize=false, read=count>;
     }
 };
 
-if (isNavmesh) {
-    local int k = 0;
-    align(16);
-    if (exists(ContentGroup1.header[0])) ContentGroupOffsetData offsetData(ContentGroup1.header[0]);
-    if (exists(ContentGroup1.header[1])) ContentGroupOffsetData offsetData(ContentGroup1.header[1]);
-    align(16);
-    if (exists(ContentGroup2.header[0])) ContentGroupOffsetData offsetData(ContentGroup2.header[0]);
-    if (exists(ContentGroup2.header[1])) ContentGroupOffsetData offsetData(ContentGroup2.header[1]);
-} else if (isWaypoint) {
-    // "nodeParentTbl" should probably fit here - if we find cases where ContentGroupMapPoint is not the sole content group
-}
+FSeek(indexDataOffset);
+align(16);
+if (exists(ContentGroup1.header[0])) ContentGroupOffsetData offsetData(ContentGroup1.header[0]);
+if (exists(ContentGroup1.header[1])) ContentGroupOffsetData offsetData(ContentGroup1.header[1]);
+if (exists(ContentGroup1.header[2])) ContentGroupOffsetData offsetData(ContentGroup1.header[2]);
+align(16);
+if (exists(ContentGroup2.header[0])) ContentGroupOffsetData offsetData(ContentGroup2.header[0]);
+if (exists(ContentGroup2.header[1])) ContentGroupOffsetData offsetData(ContentGroup2.header[1]);
+if (exists(ContentGroup2.header[2])) ContentGroupOffsetData offsetData(ContentGroup2.header[2]);
 
 if (exists(layersOffset)) {
     FSeek(layersOffset);
-    if (format28) {
+    if (format == 28) {
         struct {
             uint32 nameHash;
             uint32 flags <format=binary>;
@@ -367,73 +312,111 @@ string mapToUknownIdsData(uint32 val) {
 }
 
 FSeek(embeddedContentOffset);
-struct {
-    // DD2 appdata\field\env_1946\navimesh_1946_event_6.ainvm.30 - 9 embeds
-    // DD2 appdataback\field\env_2850\navimesh_2850_event_14.ainvm.30 - huge file with 5 embeds
-    // DD2 appdata\field\env_993\navimesh_993_event_16.ainvm.30
-    // very TODO
 
-    uint32 ukn1, ukn2;
+typedef struct EmbeddedIndexedTriangle {
+    uint32 index;
+    uint16 b1;
+    uint8 b2, b3;
+
+    uint16 c1;
+    uint8 c2, c3;
+
+    uint32 d, e, f, g;
+};
+
+typedef struct EmbeddedTriangleData {
+    uint32 positionCount;
+    if (positionCount > 0) {
+        struct {
+            uint16 b1;
+            uint8 b2, b3;
+            uint32 b, c, d;
+            vec3Padded vec <read=ReadVec3P>;
+        } Positions[positionCount] <read=(Str("%d %d %d %d %f %f %f", c, b1, b2, b3, vec.x, vec.y, vec.z))>;
+    }
+
+    uint32 positionCount2;
+    if (positionCount2 > 0) {
+        vec3Padded Positions2[positionCount2] <read=ReadVec3P>;
+    }
+
+    vec3Padded min <read=ReadVec3P>;
+    vec3Padded max <read=ReadVec3P>;
+
+    uint32 count1;
+    if (count1 > 0) {
+        EmbeddedIndexedTriangle data1[count1] <read=index>;
+    }
+
+    uint32 count2;
+    if (count2 > 0) {
+        EmbeddedIndexedTriangle data2[count2] <read=index>;
+    }
+
+    uint32 count3;
+    if (count3 > 0) {
+        EmbeddedIndexedTriangle data3[count3] <read=index>;
+    }
+
+    if (format > 28) {
+        uint32 count4;
+        if (count4 > 0) {
+            struct {
+                uint32 a, b;
+            } data4[count4];
+        }
+        uint32 count5;
+    }
+};
+
+typedef struct EmbeddedPolygonData {
+};
+
+typedef struct EmbeddedContentData {
+    uint32 nodeCount;
+
+    if (nodeCount > 0) {
+        FixedWString classname <read=ReadFixedWString>;
+        ContentGroupItemHeaderData header(nodeCount, classname.str);
+    }
+
+    EmbeddedTriangleData data;
+};
+
+typedef struct EmbeddedPreData {
+    uint32 count1;
+    if (count1 > 0) {
+        uint32 data1[count1];
+    }
+    uint32 count2;
+    if (count2 > 0) {
+        uint32 data2[count2];
+    }
+};
+
+struct {
+    uint32 hash1, hash2;
+    if (format == 28) {
+        uint32 hash3, hash4;
+    }
     uint32 count;
 
     if (count > 0) {
         struct {
             uint32 hash1, hash2;
-            uint32 n1, n2;
-            uint32 contentCount;
-
-            // note: this is a clusterfuck
-            // we don't always have classnames (NOT aiwayp-points, DO: navmesh-tri+poly), but when we do, they seem to always be the same ones as the "main" groups[0]
-            // the structures are also slightly different (additional 16B of data for every piece of data?)
-            if (contentCount == 0) {
-                uint32 classNameLen, pad;
-                struct {
-                    vec3Padded a <read=ReadVec3P>;
-                    vec3Padded b <read=ReadVec3P>;
-                    uint32 empty[6];
-
-                    if (empty[3] > 0) struct { uint32 n[14]; } dataPoints[empty[3]];
-                } empty;
-
-            } else if (contentCount > 0 && ReadUInt() > 0) {
-                FixedWString classname <read=str>;
-                ContentGroupItemHeaderData header(contentCount, classname.str);
-
-                uint32 count1;
-                struct {
-                    uint32 a, b, c, d;
-                    vec3Padded vec <read=ReadVec3P>;
-                } Positions[count1] <read=(Str("%f %f %f", vec.x, vec.y, vec.z))>;
-
-                uint32 count2;
-                vec3Padded positions[count2] <read=ReadVec3P>;
-
-                vec3Padded min <read=ReadVec3P>;
-                vec3Padded max <read=ReadVec3P>;
-
-            } else {
-                uint32 classNameLen;
-                uint32 n3;
-
-                uint32 count3, count4, count5;
-                struct {
-                    uint32 idMaybe, n2, n3, n4, n5, n6, n7;
-                } moreData[count3] <read=idMaybe>;
-                struct {
-                    uint32 idMaybe, n2, n3, n4, n5, n6, n7;
-                } moreDataFixed[4] <read=idMaybe>;
-                //uint32 n4, n5, n6, n7, n8;
-
+            if (format == 28) {
+                uint32 hash3, hash4;
             }
 
-            uint32 count6, count7;
+            EmbeddedPreData preData;
 
-            vec3Padded c <read=ReadVec3P>;
-            vec3Padded d <read=ReadVec3P>;
-            vec3Padded e <read=ReadVec3P>;
-            FixedWString name <read=ReadFixedWString>;
-            FixedWString hash <read=ReadFixedWString>;
-        } event[count] <optimize=false>;
+            EmbeddedContentData data1;
+            if (format > 28) {
+                EmbeddedContentData data2;
+
+                FixedWString key <read=ReadFixedWString>;
+            }
+        } embed[count] <optimize=false, read=(exists(key.str) ? key.str : Str("%d %d", hash3, hash4))>;
     }
 
 } embeddedData;
