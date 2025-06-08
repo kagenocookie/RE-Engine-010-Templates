@@ -1,0 +1,18 @@
+
+typedef struct {
+    float x, y, z;
+    // for mcol >= 9018, this is the "next tree node entry to look at" linked list index, and if it's a leaf node, then it's the leaf / face index
+    uint32 index : 31;
+    uint32 isLeaf : 1;
+} IndexedVec3 <read=Str("%d: %f %f %f", index, x, y, z)>;
+
+typedef struct BvhTree {
+    uint32 countLeft;
+    uint32 leafCountDmc5; // should be equal to the number of faces, or 0 in > dmc5 engine versions
+    FSkip(8);
+    local int actualCount = leafCountDmc5 > 0 ? leafCountDmc5 * 2 : countLeft;
+    struct {
+        IndexedVec3 v1;
+        IndexedVec3 v2;
+    } bounds[actualCount] <read=Str(v1.isLeaf ? "L %d %d:            %f %f %f" : "%d %d:            %f %f %f", v1.index, v2.index, v1.x, v1.y, v1.z)>;
+};

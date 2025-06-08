@@ -58,8 +58,8 @@ uint64 secondContentGroupOffset, secondNodeTableOffset;
 
 struct ContentGroupBounds {
     float ukn1, ukn2;
-    vec3Padded min <read=ReadVec3P>;
-    vec3Padded max <read=ReadVec3P>;
+    vec3p min <read=ReadVec3P>;
+    vec3p max <read=ReadVec3P>;
 };
 
 struct TriangleData {
@@ -154,7 +154,7 @@ struct ContentGroupWallHeader(uint32 count) {
 struct ContentGroupBody {
     uint32 positionCount;
     if (positionCount > 0) {
-        vec3Padded positions[positionCount] <read=ReadVec3P>;
+        vec3p positions[positionCount] <read=ReadVec3P>;
     }
     TriangleData Triangles;
 };
@@ -164,7 +164,7 @@ struct ContentGroupBodyEmbed {
     if (positionCount > 0) {
         struct {
             uint32 indices[4];
-            vec3Padded position <read=ReadVec3P>;
+            vec3p position <read=ReadVec3P>;
         } positions[positionCount];
     }
     TriangleData Triangles;
@@ -213,7 +213,7 @@ struct ContentGroupContainer {
     }
 
     // god knows what this is, using the bounds Vector4's padding bytes as an indicator
-    if (ReadInt(FTell() + sizeof(ContentGroupBounds) - 4) != 0 || ReadInt(FTell() + sizeof(ContentGroupBounds) - 4 - sizeof(vec3Padded)) != 0) {
+    if (ReadInt(FTell() + sizeof(ContentGroupBounds) - 4) != 0 || ReadInt(FTell() + sizeof(ContentGroupBounds) - 4 - sizeof(vec3p)) != 0) {
         uint32 mysteryPadding <read="YES">;
     }
 
@@ -331,17 +331,17 @@ typedef struct EmbeddedTriangleData {
             uint16 b1;
             uint8 b2, b3;
             uint32 b, c, d;
-            vec3Padded vec <read=ReadVec3P>;
+            vec3p vec;
         } Positions[positionCount] <read=(Str("%d %d %d %d %f %f %f", c, b1, b2, b3, vec.x, vec.y, vec.z))>;
     }
 
     uint32 positionCount2;
     if (positionCount2 > 0) {
-        vec3Padded Positions2[positionCount2] <read=ReadVec3P>;
+        vec3p Positions2[positionCount2];
     }
 
-    vec3Padded min <read=ReadVec3P>;
-    vec3Padded max <read=ReadVec3P>;
+    vec3p min;
+    vec3p max;
 
     uint32 count1;
     if (count1 > 0) {

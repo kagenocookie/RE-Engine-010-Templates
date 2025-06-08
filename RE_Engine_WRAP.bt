@@ -56,9 +56,9 @@ typedef struct DataBlock(int i, int k) {
         //hfloat v2;
         local int weightCount = (Header.dataItemSize - 4) / 12;
         struct indexData {
-            hfloat a, b, c, d;
+            hfloat x, y, z, weight;
             uint32 index;
-        } Influences[weightCount] <read=Str("%d %f %f %f %f", index, a, b, c, d)>;
+        } Influences[weightCount] <read=Str("%d %f:  %f %f %f", index, weight, x, y, z)>;
     } DataBlocks[DataHeader[entry].parts[part].count] <read=Str("%d %d", v1, v2), optimize=false>;
 };
 
