@@ -6,8 +6,8 @@
 //   Version: 0.1
 //   Purpose:
 //  Category: RE Engine
-// File Mask: *.mcol.*
-//  ID Bytes: 4D 43 4F 4C
+// File Mask: *.mcol.*|*.terr.*
+//  ID Bytes: 4D 43 4F 4C,54 45 52 52
 //   History:
 //------------------------------------------------
 
@@ -43,24 +43,18 @@ typedef struct MCOLHeader {
         uint64 mcolStringTableOffset;
         local uint64 bvhOffset = startof(this) + 32;
     }
-    // could also contain:
-    // partsEnabled - bool[]
-    // triangle mask bits - uint
-    // materialinfo array (via.physics.MaterialInfo - physics material - ID + 3x attributes)
-    // scale, scale error
-    // also via.physics.ShapeKeys  - individual uint values (shape ID / group ID?)
 };
 
+// via.physics.TerrainResourceHolder
 typedef struct TERRHeader {
 	uint32 magic;
-    uint32 ukn;
+    uint32 bvhSize;
     uint count;
-    uint count2;
+    uint guidCount;
     GUID guid;
     uint64 offset1;
-    uint64 offset2;
+    uint64 guidOffset;
     local uint64 bvhOffset = startof(this) + 48;
-    // note: there should be a list of triangles somewhere, or at least a count
 };
 
 local int isMcol = (ReadUInt() == 0x4c4f434d);
@@ -81,47 +75,49 @@ if (exists(Header.bvhSize) && Header.bvhSize == 0) {
 FSeek(Header.bvhOffset);
 struct BVHHeader {
 	uint32 magic;
-	uint32 positionCount; // dd2 mcol
+	uint32 verticesCount;
     uint32 indicesCount;
-    uint32 uknCount;
+    uint32 uknCount1;
     uint32 stringCount;
-    uint32 spheresCount; // found in dd2
-    uint32 capsulesCount;
-    uint32 boxesCount;
-    uint32 ukn3;
+    if (version > 2) {
+        uint32 spheresCount;
+        uint32 capsulesCount;
+        uint32 boxesCount;
+        uint32 uknCount2;
+    }
 
     uint32 treeDataSize;
-    uint64 treeDataOffset; // data1_addr
-    uint64 positionsOffset; // vertex positions?
-    uint64 object2Offset;
+    uint64 treeDataOffset;
+    uint64 verticesOffset;
+    uint64 indicesOffset;
     uint64 uknOffset;
 
     uint64 stringTableOffset;
-    uint64 spheresOffset;
-    uint64 capsulesOffset;
-    uint64 boxesOffset;
-    uint64 uknOffsetPadding;
+    if (version > 2) {
+        uint64 spheresOffset;
+        uint64 capsulesOffset;
+        uint64 boxesOffset;
+        uint64 uknOffsetPadding;
+    }
 } bvh <read=(exists(StringTable.name) ? StringTable.name : "")>;
 
-if (isMcol) {
-    vec3p minBounds;
-    vec3p maxBounds;
-}
+vec3p minBounds;
+vec3p maxBounds;
 
 if (bvh.treeDataSize > 0) {
     FSeek(startof(bvh) + bvh.treeDataOffset);
     BvhTree Tree;
 }
 
-if (bvh.positionCount > 0) {
-    FSeek(startof(bvh) + bvh.positionsOffset);
+if (bvh.verticesCount > 0) {
+    FSeek(startof(bvh) + bvh.verticesOffset);
     struct {
-	    vec3p vertex[bvh.positionCount] <read=Str("%f %f %f", x, y, z)>;
+	    vec3p vertex[bvh.verticesCount] <read=Str("%f %f %f", x, y, z)>;
     } Vertices;
 }
 
 if (bvh.indicesCount > 0) {
-    FSeek(startof(bvh) + bvh.object2Offset);
+    FSeek(startof(bvh) + bvh.indicesOffset);
     // hard separating the structs because the editor can't handle large arrays without optimizations
     struct {
         if (version >= 20021) {
@@ -129,7 +125,7 @@ if (bvh.indicesCount > 0) {
                 uint32 ukn0;
                 uint32 layerIndex; // corresponds to a string index in the string table
                 uint32 mask;
-                uint32 groupId;
+                uint32 partId;
 
                 uint32 ukn1;
                 uint32 ukn2;
@@ -142,10 +138,10 @@ if (bvh.indicesCount > 0) {
                 uint32 posIdx1;
                 uint32 posIdx2;
                 uint32 posIdx3;
-                uint32 posIdx4;
-                uint32 posIdx5;
-                uint32 posIdx6;
-            } data[bvh.indicesCount] <read=Str("%d:%d - %x", layerIndex, groupId, mask)>;
+                int32 edgeIdx1;
+                int32 edgeIdx2;
+                int32 edgeIdx3;
+            } data[bvh.indicesCount] <read=Str("%d:%d - %x  (%d %d %d)", layerIndex, partId, mask, posIdx1, posIdx2, posIdx3)>;
         } else if (version >= 13020) {
             struct {
                 uint32 ukn0;
@@ -163,10 +159,10 @@ if (bvh.indicesCount > 0) {
                 uint32 posIdx1;
                 uint32 posIdx2;
                 uint32 posIdx3;
-                uint32 posIdx4;
-                uint32 posIdx5;
-                uint32 posIdx6;
-            } data[bvh.indicesCount] <read=Str("%d:%d - %x", layerIndex, groupId, mask)>;
+                int32 edgeIdx1;
+                int32 edgeIdx2;
+                int32 edgeIdx3;
+            } data[bvh.indicesCount] <read=Str("%d - %x  (%d %d %d)", layerIndex, mask, posIdx1, posIdx2, posIdx3)>;
         } else if (version >= 3017) {
             struct {
                 uint32 ukn0;
@@ -183,16 +179,15 @@ if (bvh.indicesCount > 0) {
                 uint32 posIdx1;
                 uint32 posIdx2;
                 uint32 posIdx3;
-                uint32 edgeIdx1;
-                uint32 edgeIdx2;
-                uint32 edgeIdx3;
+                int32 edgeIdx1;
+                int32 edgeIdx2;
+                int32 edgeIdx3;
                 uint32 ukn;
-            } data[bvh.indicesCount] <read=Str("%d", layerIndex)>;
+            } data[bvh.indicesCount] <read=Str("%d  (%d %d %d)", layerIndex, posIdx1, posIdx2, posIdx3)>;
         } else {
             // 2 = re7 non-rt; struct unknown for now because the header is a pain in the ass and not worth figuring out
             struct {
                 uint32 ukn0;
-                uint32 layerIndex; // corresponds to a string index in the string table
 
                 uint32 ukn1;
                 uint32 ukn2;
@@ -205,63 +200,90 @@ if (bvh.indicesCount > 0) {
                 uint32 posIdx1;
                 uint32 posIdx2;
                 uint32 posIdx3;
-                uint32 edgeIdx1;
-                uint32 edgeIdx2;
-                uint32 edgeIdx3;
+                int32 edgeIdx1;
+                int32 edgeIdx2;
+                int32 edgeIdx3;
+                uint32 layerIndex; // corresponds to a string index in the string table
                 uint32 ukn;
-            } data[bvh.indicesCount] <read=Str("%d", layerIndex)>;
+            } data[bvh.indicesCount] <read=Str("%d  (%d %d %d)", layerIndex, posIdx1, posIdx2, posIdx3)>;
         }
     } Indices;
 }
 
-if (bvh.spheresCount > 0) {
-    FSeek(startof(bvh) + bvh.spheresOffset);
-    struct {
-        uint ukn0;
-        uint layerIndex;
-        uint mask;
-        uint groupId;
-	    vec4 vec;
-    } Spheres[bvh.spheresCount] <read=Str("%d:%d %x / %f %f %f %f", layerIndex, groupId, mask, vec.x, vec.y, vec.z, vec.w), optimize=false>;
-}
+if (version >= 3017) {
+    if (bvh.spheresCount > 0) {
+        FSeek(startof(bvh) + bvh.spheresOffset);
+        struct {
+            uint ukn0;
+            uint layerIndex;
+            uint mask;
+            uint partId;
+            vec4 vec;
+        } Spheres[bvh.spheresCount] <read=Str("%d:%d %x / %f %f %f %f", layerIndex, partId, mask, vec.x, vec.y, vec.z, vec.w), optimize=false>;
+    }
 
-if (bvh.capsulesCount > 0) {
-    FSeek(startof(bvh) + bvh.capsulesOffset);
-    struct {
-        uint ukn0;
-        uint layerIndex;
-        uint mask;
-        uint groupId;
-	    Capsule capsule;
-    } Capsules[bvh.capsulesCount] <read=Str("%d:%d %x / %f %f %f", layerIndex, groupId, mask, capsule.p0.x, capsule.p0.y, capsule.p0.z), optimize=false>;
-}
+    if (bvh.capsulesCount > 0) {
+        FSeek(startof(bvh) + bvh.capsulesOffset);
+        struct {
+            uint ukn0;
+            uint layerIndex;
+            uint mask;
+            uint partId;
+            Capsule capsule;
+        } Capsules[bvh.capsulesCount] <read=Str("%d:%d %x / %f %f %f", layerIndex, partId, mask, capsule.p0.x, capsule.p0.y, capsule.p0.z), optimize=false>;
+    }
 
-if (bvh.boxesCount > 0) {
-    FSeek(startof(bvh) + bvh.boxesOffset);
-    struct {
-        uint ukn0;
-        uint layerIndex;
-        uint mask;
-        uint groupId;
-        OBB box;
-    } Boxes[bvh.boxesCount] <read=Str("%d:%d %x / %s", layerIndex, groupId, mask, ReadMat4(box.coord)), optimize=false>;
-}
-
-if (bvh.uknOffset > 0) {
-    FSeek(startof(bvh) + bvh.uknOffset);
-    struct {
-	    vec3p pos[bvh.normalCount];
-    } Normals;
+    if (bvh.boxesCount > 0) {
+        FSeek(startof(bvh) + bvh.boxesOffset);
+        struct {
+            uint ukn0;
+            uint layerIndex;
+            uint mask;
+            uint partId;
+            OBB box;
+        } Boxes[bvh.boxesCount] <read=Str("%d:%d %x / %s", layerIndex, partId, mask, ReadMat4(box.coord)), optimize=false>;
+    }
 }
 
 if (bvh.stringTableOffset > 0) {
     FSeek(startof(bvh) + bvh.stringTableOffset);
-    struct {
-        OffsetWString str(startof(bvh))[isMcol ? bvh.stringCount * 2 : 1];
-    } StringTable <read=(exists(str[0].str) ? str[0].str : "<empty>")>;
+    if (version <= 4) { // re7: terr.4 or mcol.2
+        struct {
+            uint32 index;
+            uint32 zero;
+            uint32 zero;
+            uint32 zero;
+        } LayerIndices[bvh.stringCount] <read=index>;
+    } else {
+        struct {
+            OffsetWString str(startof(bvh))[bvh.stringCount * 2];
+        } StringTable <read=(exists(str[0].str) ? str[0].str : "<empty>")>;
+    }
 }
 
-FSeek(Header.mcolStringTableOffset);
-struct {
-    OffsetWString str(0)[bvh.stringCount * 2];
-} MCOLStringTable <read=(exists(str[0].str) ? str[0].str : "<empty>")>;
+if (isMcol) {
+    // gets mapped into a via.physics.MaterialInfo array (physics material - ID + 3x attributes)
+    // mcol string table here is identical to the bvh's inner string table
+    if (exists(Header.mcolStringTableOffset)) {
+        FSeek(Header.mcolStringTableOffset);
+        struct {
+            OffsetWString str(0)[bvh.stringCount * 2];
+        } MCOLStringTable <read=(exists(str[0].str) ? str[0].str : "<empty>")>;
+    }
+} else if (isTerr) {
+    if (Header.count > 0) {
+        FSeek(Header.offset1);
+        struct {
+            GUID null1;
+            GUID null2;
+            uint64 uknOffset1;
+            uint64 uknOffset2;
+        } TerrainTypes[Header.count];
+    }
+    if (Header.guidCount > 0) {
+        FSeek(Header.guidOffset);
+        struct {
+            GUID guid;
+        } Guids[Header.guidCount];
+    }
+}
