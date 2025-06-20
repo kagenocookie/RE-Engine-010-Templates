@@ -74,35 +74,63 @@ if (exists(Header.bvhSize) && Header.bvhSize == 0) {
 
 FSeek(Header.bvhOffset);
 struct BVHHeader {
-	uint32 magic;
-	uint32 verticesCount;
-    uint32 indicesCount;
-    uint32 uknCount1;
-    uint32 stringCount;
-    if (version > 2) {
-        uint32 spheresCount;
-        uint32 capsulesCount;
-        uint32 boxesCount;
+    uint32 magic;
+    if (isRmesh) {
+        uint32 uknCount1;
         uint32 uknCount2;
-    }
+        uint32 uknCount3;
+        uint32 verticesCount;
+        uint32 rmeshObject2Count;
+        uint32 rmeshObject3Count;
+        uint32 stringCount;
+        uint32 spheresCount;
 
-    uint32 treeDataSize;
-    uint64 treeDataOffset;
-    uint64 verticesOffset;
-    uint64 indicesOffset;
-    uint64 uknOffset;
+        uint32 capsulesCount;
+        uint64 boxesCount;
+        // uint32 padding<hidden=true>;
+        uint64 verticesOffset;
+        uint64 rmeshObject2Offset;
+        uint64 rmeshObject3Offset;
 
-    uint64 stringTableOffset;
-    if (version > 2) {
+        uint64 stringTableOffset;
         uint64 spheresOffset;
         uint64 capsulesOffset;
         uint64 boxesOffset;
         uint64 uknOffsetPadding;
-    }
-} bvh <read=(exists(StringTable.name) ? StringTable.name : "")>;
+        local int treeDataSize = 1;
+        local int treeDataOffset = version == 10008 ? FTell() + 16 : FTell() - Header.bvhOffset;
+    } else {
+        uint32 verticesCount;
+        uint32 indicesCount;
+        uint32 uknCount1;
+        uint32 stringCount;
+        if (version > 2) {
+            uint32 spheresCount;
+            uint32 capsulesCount;
+            uint32 boxesCount;
+            uint32 uknCount2;
+        }
 
-vec3p minBounds;
-vec3p maxBounds;
+        uint32 treeDataSize;
+        uint64 treeDataOffset;
+        uint64 verticesOffset;
+        uint64 indicesOffset;
+        uint64 uknOffset;
+
+        uint64 stringTableOffset;
+        if (version > 2) {
+            uint64 spheresOffset;
+            uint64 capsulesOffset;
+            uint64 boxesOffset;
+            uint64 uknOffsetPadding;
+        }
+    }
+} bvh;
+
+if (!isRmesh || version == 10008) {
+    vec3p minBounds;
+    vec3p maxBounds;
+}
 
 if (bvh.treeDataSize > 0) {
     FSeek(startof(bvh) + bvh.treeDataOffset);
@@ -116,7 +144,38 @@ if (bvh.verticesCount > 0) {
     } Vertices;
 }
 
-if (bvh.indicesCount > 0) {
+if (exists(bvh.rmeshObject2Offset) && bvh.rmeshObject2Count > 0) {
+    FSeek(startof(bvh) + bvh.rmeshObject2Offset);
+    struct {
+        uint index1;
+        uint index2;
+        uint index3;
+        uint positionIndex1;
+        uint positionIndex2;
+        uint positionIndex3;
+        uint positionIndex4;
+        uint positionIndex5;
+        uint positionIndex6;
+        uint index10;
+        uint index11;
+        uint index12;
+        int indicesIndex1;
+        int indicesIndex2;
+        int indicesIndex3;
+        uint typeOrFlags;
+        if (version > 10008) {
+            float floats[7];
+            uint zero;
+        }
+    } RmeshIndices[bvh.rmeshObject2Count] <read=Str("[%d] %d", typeOrFlags, index3), optimize=true>;
+}
+
+if (exists(bvh.rmeshObject3Offset) && bvh.rmeshObject3Count > 0) {
+    FSeek(startof(bvh) + bvh.rmeshObject3Offset);
+    vec3p RmeshPositions[bvh.rmeshObject3Count];
+}
+
+if (exists(bvh.indicesCount) && bvh.indicesCount > 0) {
     FSeek(startof(bvh) + bvh.indicesOffset);
     // hard separating the structs because the editor can't handle large arrays without optimizations
     struct {
@@ -247,17 +306,28 @@ if (version >= 3017) {
 
 if (bvh.stringTableOffset > 0) {
     FSeek(startof(bvh) + bvh.stringTableOffset);
-    if (version <= 4) { // re7: terr.4 or mcol.2
+    if (isRmesh) {
         struct {
-            uint32 index;
-            uint32 zero;
-            uint32 zero;
-            uint32 zero;
-        } LayerIndices[bvh.stringCount] <read=index>;
+            OffsetWString name(startof(bvh));
+            uint64 empty;
+            uint64 empty;
+            uint64 empty;
+            uint64 empty;
+            uint64 empty;
+        } StringTable[bvh.stringCount] <read=(exists(name[0].str) ? name[0].str : "<empty>"), optimize=false>;
     } else {
-        struct {
-            OffsetWString str(startof(bvh))[bvh.stringCount * 2];
-        } StringTable <read=(exists(str[0].str) ? str[0].str : "<empty>")>;
+        if (version <= 4) { // re7: terr.4 or mcol.2
+            struct {
+                uint32 index;
+                uint32 zero;
+                uint32 zero;
+                uint32 zero;
+            } LayerIndices[bvh.stringCount] <read=index>;
+        } else {
+            struct {
+                OffsetWString str(startof(bvh))[bvh.stringCount * 2];
+            } StringTable <read=(exists(str[0].str) ? str[0].str : "<empty>")>;
+        }
     }
 }
 

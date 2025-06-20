@@ -61,6 +61,11 @@ typedef struct {
     uint32 padding <hidden=true>;
 } OBB <read=ReadOBB>;
 
+typedef struct {
+    vec3p min;
+    vec3p max;
+} AABB <read=Str("%s - %s", ReadVec3P(min), ReadVec3P(max))>;
+
 string ReadVec3(vec3 &v) { return Str("%f %f %f", v.x, v.y, v.z); }
 string ReadVec3P(vec3p &v) { return Str("%f %f %f", v.x, v.y, v.z); }
 string ReadFixedWString(FixedWString &wstr) { return exists(wstr.str) ? wstr.str : "-----"; }
