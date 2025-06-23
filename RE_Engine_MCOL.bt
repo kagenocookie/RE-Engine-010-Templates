@@ -87,7 +87,7 @@ struct BVHHeader {
 
         uint32 capsulesCount;
         uint64 boxesCount;
-        // uint32 padding<hidden=true>;
+
         uint64 verticesOffset;
         uint64 rmeshObject2Offset;
         uint64 rmeshObject3Offset;
@@ -177,96 +177,54 @@ if (exists(bvh.rmeshObject3Offset) && bvh.rmeshObject3Count > 0) {
 
 if (exists(bvh.indicesCount) && bvh.indicesCount > 0) {
     FSeek(startof(bvh) + bvh.indicesOffset);
-    // hard separating the structs because the editor can't handle large arrays without optimizations
     struct {
-        if (version >= 20021) {
-            struct {
-                uint32 ukn0;
+        struct BvhIndices {
+            uint32 ukn0;
+            if (version >= 3017) {
                 uint32 layerIndex; // corresponds to a string index in the string table
+            }
+            if (version >= 13020) {
                 uint32 mask;
+            }
+            if (version >= 20021) {
                 uint32 partId;
+            }
 
-                uint32 ukn1;
-                uint32 ukn2;
-                uint32 ukn3;
-                uint32 ukn4;
-                uint32 ukn5;
-                uint32 ukn6;
-                uint32 ukn7;
+            uint32 ukn1;
+            uint32 ukn2;
+            uint32 ukn3;
+            uint32 ukn4;
+            uint32 ukn5;
+            uint32 ukn6;
+            uint32 ukn7;
 
-                uint32 posIdx1;
-                uint32 posIdx2;
-                uint32 posIdx3;
-                int32 edgeIdx1;
-                int32 edgeIdx2;
-                int32 edgeIdx3;
-            } data[bvh.indicesCount] <read=Str("%d:%d - %x  (%d %d %d)", layerIndex, partId, mask, posIdx1, posIdx2, posIdx3)>;
-        } else if (version >= 13020) {
-            struct {
-                uint32 ukn0;
-                uint32 layerIndex; // corresponds to a string index in the string table
-                uint32 mask;
-
-                uint32 ukn1;
-                uint32 ukn2;
-                uint32 ukn3;
-                uint32 ukn4;
-                uint32 ukn5;
-                uint32 ukn6;
-                uint32 ukn7;
-
-                uint32 posIdx1;
-                uint32 posIdx2;
-                uint32 posIdx3;
-                int32 edgeIdx1;
-                int32 edgeIdx2;
-                int32 edgeIdx3;
-            } data[bvh.indicesCount] <read=Str("%d - %x  (%d %d %d)", layerIndex, mask, posIdx1, posIdx2, posIdx3)>;
-        } else if (version >= 3017) {
-            struct {
-                uint32 ukn0;
-                uint32 layerIndex; // corresponds to a string index in the string table
-
-                uint32 ukn1;
-                uint32 ukn2;
-                uint32 ukn3;
-                uint32 ukn4;
-                uint32 ukn5;
-                uint32 ukn6;
-                uint32 ukn7;
-
-                uint32 posIdx1;
-                uint32 posIdx2;
-                uint32 posIdx3;
-                int32 edgeIdx1;
-                int32 edgeIdx2;
-                int32 edgeIdx3;
+            uint32 posIdx1;
+            uint32 posIdx2;
+            uint32 posIdx3;
+            int32 edgeIdx1;
+            int32 edgeIdx2;
+            int32 edgeIdx3;
+            if (version < 3017) {
+                uint32 layerIndex;
+            }
+            if (version < 13020) {
                 uint32 ukn;
-            } data[bvh.indicesCount] <read=Str("%d  (%d %d %d)", layerIndex, posIdx1, posIdx2, posIdx3)>;
-        } else {
-            // 2 = re7 non-rt; struct unknown for now because the header is a pain in the ass and not worth figuring out
-            struct {
-                uint32 ukn0;
-
-                uint32 ukn1;
-                uint32 ukn2;
-                uint32 ukn3;
-                uint32 ukn4;
-                uint32 ukn5;
-                uint32 ukn6;
-                uint32 ukn7;
-
-                uint32 posIdx1;
-                uint32 posIdx2;
-                uint32 posIdx3;
-                int32 edgeIdx1;
-                int32 edgeIdx2;
-                int32 edgeIdx3;
-                uint32 layerIndex; // corresponds to a string index in the string table
-                uint32 ukn;
-            } data[bvh.indicesCount] <read=Str("%d  (%d %d %d)", layerIndex, posIdx1, posIdx2, posIdx3)>;
-        }
+            }
+        } data[bvh.indicesCount] <read=Str("%d  (%d %d %d)", layerIndex, posIdx1, posIdx2, posIdx3), optimize=true>;
     } Indices;
+}
+
+string ReadBvhIndices(BvhIndices &entry)
+{
+    if (exists(entry.partId)) {
+        return Str("%d:%d - %x  (%d %d %d)", layerIndex, partId, mask, posIdx1, posIdx2, posIdx3);
+    }
+
+    if (exists(entry.mask)) {
+        return Str("%d - %x  (%d %d %d)", layerIndex, mask, posIdx1, posIdx2, posIdx3);
+    }
+
+    return Str("%d  (%d %d %d)", layerIndex, posIdx1, posIdx2, posIdx3);
 }
 
 if (version >= 3017) {
@@ -278,7 +236,7 @@ if (version >= 3017) {
             uint mask;
             uint partId;
             vec4 vec;
-        } Spheres[bvh.spheresCount] <read=Str("%d:%d %x / %f %f %f %f", layerIndex, partId, mask, vec.x, vec.y, vec.z, vec.w), optimize=false>;
+        } Spheres[bvh.spheresCount] <read=Str("%d:%d %x / %f %f %f %f", layerIndex, partId, mask, vec.x, vec.y, vec.z, vec.w)>;
     }
 
     if (bvh.capsulesCount > 0) {
@@ -289,7 +247,7 @@ if (version >= 3017) {
             uint mask;
             uint partId;
             Capsule capsule;
-        } Capsules[bvh.capsulesCount] <read=Str("%d:%d %x / %f %f %f", layerIndex, partId, mask, capsule.p0.x, capsule.p0.y, capsule.p0.z), optimize=false>;
+        } Capsules[bvh.capsulesCount] <read=Str("%d:%d %x / %f %f %f", layerIndex, partId, mask, capsule.p0.x, capsule.p0.y, capsule.p0.z)>;
     }
 
     if (bvh.boxesCount > 0) {
@@ -300,7 +258,7 @@ if (version >= 3017) {
             uint mask;
             uint partId;
             OBB box;
-        } Boxes[bvh.boxesCount] <read=Str("%d:%d %x / %s", layerIndex, partId, mask, ReadMat4(box.coord)), optimize=false>;
+        } Boxes[bvh.boxesCount] <read=Str("%d:%d %x / %s", layerIndex, partId, mask, ReadMat4(box.coord))>;
     }
 }
 
