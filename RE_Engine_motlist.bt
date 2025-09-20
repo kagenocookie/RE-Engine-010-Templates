@@ -1498,11 +1498,13 @@ typedef struct framedatarot (uint32 keyCount, uint32 flags, uint64 frameDataOffs
                         break;
 
                     case 0x70000:                       //LoadQuaternions21Bit RE2
-                        if (MOT_HEADER.version == 78) { //LoadQuaternions18Bit RE3
-                            uint64 RotationData : 56; FSkip(-1); if (SKIP_UNPACK) break;
-                            local float RotationX = (MaxUnpackX * ((RotationData >> 00) & 0x1FFF) * 0.00012208521f) + MinUnpackX;
-                            local float RotationY = (MaxUnpackY * ((RotationData >> 13) & 0x1FFF) * 0.00012208521f) + MinUnpackY;
-                            local float RotationZ = (MaxUnpackZ * ((RotationData >> 26) & 0x1FFF) * 0.00012208521f) + MinUnpackZ;
+                        if (MOT_HEADER.version >= 78) { //LoadQuaternions18Bit RE3
+                            // NOTE: unsure if this matches correctly for all games; it is correct for DD2
+                            // could be different comrpession in earlier games? is 18 bit in DD2 as the name also implies; was it ever actually 13?
+                            uint64 RotationData : 56; if (SKIP_UNPACK) break;
+                            local float RotationX = (MaxUnpackX * ((RotationData >> 00) & 0x3FFFF) / 262143.0f) + MinUnpackX;
+                            local float RotationY = (MaxUnpackY * ((RotationData >> 18) & 0x3FFFF) / 262143.0f) + MinUnpackY;
+                            local float RotationZ = (MaxUnpackZ * ((RotationData >> 36) & 0x3FFFF) / 262143.0f) + MinUnpackZ;
                             local float RotationW = wRot();
                             break;
                         }
@@ -1549,7 +1551,9 @@ string ReadFrame(FRAME &f) {
 
 typedef struct {
     uint64 Address <format=hex>;
-    if (ReadUInt(Address+4) == 1701999725) {
+    if (Address == 0) {
+        local string motName = "";
+    } else if (ReadUInt(Address+4) == 1701999725) {
         local string motName = ReadWString(Address + ReadUInt64(Address + 48));
     } else if (HEADER.version == 486) {
         local string motName = ReadWString(Address + ReadUInt64(Address + 88));
@@ -1597,6 +1601,9 @@ typedef struct motHdr {
     ushort  boneClipCount;
     ubyte   clipCount;
     ubyte   motEndClipCount;
+    if (version >= 458) {
+        ushort uknExtraCount;
+    }
     ushort  FrameRate;
     ushort  uknPointerCount;
     ushort  uknShort;
