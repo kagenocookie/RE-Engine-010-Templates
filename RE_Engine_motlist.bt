@@ -250,7 +250,7 @@ typedef struct KEY {
             case PropertyType_Str8:
             case PropertyType_Enum:
                 uint64 value;
-                FSeek(clipHeader.namesOffsExtra[1] + start + value);
+                FSeek(clipHeader.hermiteDataOffset + start + value);
                 string String;
                 break;
             case PropertyType_Guid:
@@ -522,7 +522,7 @@ typedef struct {
                 uint64 uknRE7;
             }
         }
-        FSeek(clipHeader.namesOffsExtra[1] + start + PropInfo.nameOffset[0]);
+        FSeek(clipHeader.namesOffs + start + PropInfo.nameOffset[0]);
         string FunctionName  <hidden=false>;
         if (HEADER.version < 486 && PropInfo.nameOffset[1] > 0) {
             FSeek(clipHeader.unicodeNamesOffs + start + PropInfo.nameOffset[1]*2);
@@ -643,7 +643,7 @@ typedef struct {
         FSeek(clipHeader.unicodeNamesOffs + start + nameOffset[0] * 2);
         wstring name;
     } else {
-        FSeek(clipHeader.namesOffsExtra[1] + start + nameOffset[0]);
+        FSeek(clipHeader.namesOffs + start + nameOffset[0]);
         string name;
     }
     FSeek(pos);
@@ -696,20 +696,22 @@ typedef struct {
 
         uint64 clipDataOffs, propertiesOffs;
         uint64 keysOffs;
-        uint64 namesOffs;
+        uint64 uknOffset1;
 
-        if (HEADER.version == 85)
-            uint64 namesOffs2;
+        uint64 hermiteDataOffset;
 
         if (HEADER.version == 60)
-            uint64 namesOffsExtra[5];
-        else if (HEADER.Version == 663 || HEADER.Version==653)
             uint64 namesOffsExtra[3];
-        else if (HEADER.Version == 992)
-            uint64 namesOffsExtra[7];
+        else if (HEADER.Version == 663 || HEADER.Version==653)
+            uint64 namesOffsExtra[1];
+        else if (HEADER.Version >= 992)
+            uint64 namesOffsExtra[5];
+        else if (HEADER.Version == 85)
+            uint64 namesOffsExtra[3];
         else
-            uint64 namesOffsExtra[4];
+            uint64 namesOffsExtra[2];
 
+        uint64 namesOffs;
         uint64 unicodeNamesOffs;
         uint64 endClipStructsOffs;
         // if (HEADER.version < 653)
@@ -741,12 +743,19 @@ typedef struct {
     if (clipHeader.numKeys > 0)
         struct clipKey Keys[clipHeader.numKeys] <optimize=true>;
 
-    if (clipHeader.namesOffsExtra[1] - clipHeader.namesOffs > 0) {
-        FSeek(clipHeader.namesOffs+start);
-        float Unknown_Floats[(clipHeader.namesOffsExtra[1] - clipHeader.namesOffs) / 4];
+    if (clipHeader.hermiteDataOffset < clipHeader.namesOffsExtra[0]) {
+        FSeek(clipHeader.hermiteDataOffset+start);
+        struct  {
+            float x1, y1;
+            float x2, y2;
+        } Hermite_Data[(clipHeader.namesOffsExtra[0] - clipHeader.hermiteDataOffset) / 16] <read=Str("%f,%f %f,%f", x1, y1, x2, y2)>;
     }
 
-    FSeek(clipHeader.namesOffsExtra[1] + start);
+    if (clipHeader.namesOffs > clipHeader.namesOffsExtra[0]) {
+        uint32 UnknownData[(clipHeader.namesOffs - clipHeader.namesOffsExtra[0]) / 4];
+    }
+
+    FSeek(clipHeader.namesOffs + start);
     struct {
         for (k = 0; k < clipHeader.numProperties + clipHeader.numNodes; k++) {
             if (ReadByte() == 0)
@@ -806,7 +815,7 @@ typedef struct {
                 int32 ukn1;
                 int32 ukn2;
                 int32 ukn3;
-                if (HEADER.version >= 492) {
+                if (HEADER.version >= 486) {
                     int32 ukn4;
                     int32 ukn5;
                     int32 ukn6;
@@ -1775,17 +1784,22 @@ typedef struct {
 
 typedef struct
 {
-    StringRead className(-1, start, 0, 1, 0);
+    if (version <= 10) {
+        StringRead className(-1, start, 0, 1, 0);
+    }
     StringRead name(-1, start, 0, 0, 0);
     StringRead tagTbl(-1, start, 0, 0, 0);
     uint64 tagHashTbl;
     uint64 parameterTbl;
-    unsigned int id;
     unsigned int classNameHash;
     unsigned int nameHash;
-    char tagCount;
-    char paramCount;
-    enum <char>
+    uint32 extraHash1;
+    if (version == 13) {
+        uint32 extraHash2;
+    }
+    ubyte tagCount;
+    ubyte paramCount;
+    enum <ubyte>
     {
         NodeType_Unknown = 0x0,
         NodeType_GameObject = 0x1,
@@ -1793,110 +1807,118 @@ typedef struct
         NodeType_Folder = 0x3,
     } nodeType;
 
-    char flags;
+    ubyte flags;
+    if (version == 13) {
+        uint32 padding;
+    }
 
+    local uint64 pos = FTell();
     FSeek(start+parameterTbl);
-    struct PARAM {
-        struct StringRead Name(-1, start, 0, 1, 1);
-        uint A;
-        enum {
-            ParamType_Bool = 0x0,
-            ParamType_U8 = 0x1,
-            ParamType_S8 = 0x2,
-            ParamType_U16 = 0x3,
-            ParamType_S16 = 0x4,
-            ParamType_S32 = 0x5,
-            ParamType_U32 = 0x6,
-            ParamType_S64 = 0x7,
-            ParamType_U64 = 0x8,
-            ParamType_F32 = 0x9,
-            ParamType_F64 = 0xA,
-            ParamType_Str8 = 0xB,
-            ParamType_Str16 = 0xC,
-            ParamType_ExtraData = 0xD,
-            ParamType_Hermite = 0xE,
-            ParamType_Guid = 0xF,
-            ParamType_Vec2 = 0x10,
-            ParamType_Vec3 = 0x11,
-            ParamType_Vec4 = 0x12,
-            ParamType_Matrix = 0x13,
-        } paramType;
-        uint Hash;
-        switch (paramType) {
-            case ParamType_Str8:
-                struct StringRead String(-1, start, 0, 1, 0);
-                break;
-            case ParamType_Str16:
-                struct StringRead String(-1, start, 0, 0, 0);
-                break;
-            case ParamType_Bool:
-            case ParamType_U8:
-                ubyte value;
-                break;
-            case ParamType_S8:
-                byte value;
-                break;
-            case ParamType_U16:
-                ushort value;
-                break;
-            case ParamType_S16:
-                short value;
-                break;
-            case ParamType_S32:
-                int value;
-                break;
-            case ParamType_U32:
-                uint value;
-                break;
-            case ParamType_S64:
-                int64 value;
-                break;
-            case ParamType_U64:
-                uint64 value;
-                break;
-            case ParamType_F32:
-                float value;
-                break;
-            case ParamType_F64:
-                double value;
-                break;
-            default:
-                int64 paramOffset;
-                break;
-        }
-
-        if (exists(paramOffset)) {
-            FSeek(start + paramOffset);
+    if (paramCount > 0) {
+        struct PARAM {
+            if (version <= 10) {
+                struct StringRead Name(-1, start, 0, 1, 0);
+            }
+            // uint A;
+            enum {
+                ParamType_Bool = 0x0,
+                ParamType_U8 = 0x1,
+                ParamType_S8 = 0x2,
+                ParamType_U16 = 0x3,
+                ParamType_S16 = 0x4,
+                ParamType_S32 = 0x5,
+                ParamType_U32 = 0x6,
+                ParamType_S64 = 0x7,
+                ParamType_U64 = 0x8,
+                ParamType_F32 = 0x9,
+                ParamType_F64 = 0xA,
+                ParamType_Str8 = 0xB,
+                ParamType_Str16 = 0xC,
+                ParamType_ExtraData = 0xD,
+                ParamType_Hermite = 0xE,
+                ParamType_Guid = 0xF,
+                ParamType_Vec2 = 0x10,
+                ParamType_Vec3 = 0x11,
+                ParamType_Vec4 = 0x12,
+                ParamType_Matrix = 0x13,
+            } paramType;
+            uint Hash;
             switch (paramType) {
-                case ParamType_Guid:
-                    rGUID Guid;
+                case ParamType_Str8:
+                    struct StringRead String(-1, start, 0, 1, 0);
                     break;
-                case ParamType_Vec2:
-                    float vec2[2];
+                case ParamType_Str16:
+                    struct StringRead String(-1, start, 0, 0, 0);
                     break;
-                case ParamType_Vec3:
-                    float vec3[3];
+                case ParamType_Bool:
+                case ParamType_U8:
+                    ubyte value;
                     break;
-                case ParamType_Vec4:
-                    float vec4[4];
+                case ParamType_S8:
+                    byte value;
                     break;
-                case ParamType_Matrix:
-                    float matrix[16];
+                case ParamType_U16:
+                    ushort value;
                     break;
-                case ParamType_ExtraData:
-                case ParamType_Hermite:
-                default:
+                case ParamType_S16:
+                    short value;
+                    break;
+                case ParamType_S32:
+                    int value;
+                    break;
+                case ParamType_U32:
+                    uint value;
+                    break;
+                case ParamType_S64:
                     int64 value;
+                    break;
+                case ParamType_U64:
+                    uint64 value;
+                    break;
+                case ParamType_F32:
+                    float value;
+                    break;
+                case ParamType_F64:
+                    double value;
+                    break;
+                default:
+                    int64 paramOffset;
                     break;
             }
 
-        }
+            if (exists(paramOffset)) {
+                FSeek(start + paramOffset);
+                switch (paramType) {
+                    case ParamType_Guid:
+                        rGUID Guid;
+                        break;
+                    case ParamType_Vec2:
+                        float vec2[2];
+                        break;
+                    case ParamType_Vec3:
+                        float vec3[3];
+                        break;
+                    case ParamType_Vec4:
+                        float vec4[4];
+                        break;
+                    case ParamType_Matrix:
+                        float matrix[16];
+                        break;
+                    case ParamType_ExtraData:
+                    case ParamType_Hermite:
+                    default:
+                        int64 value;
+                        break;
+                }
 
-        FSeek(startof(Hash)+12);
+            }
 
-    } Param[paramCount] <read=ReadPARAM, name=ReadPARAMName, optimize=false>;
+            FSeek(startof(Hash)+12);
 
-    FSeek(startof(flags)+1);
+        } Param[paramCount] <read=ReadPARAM, name=ReadPARAMName, optimize=false>;
+    }
+
+    FSeek(pos);
 
 } NodeData <read=ReadNodeData>;
 
@@ -1907,17 +1929,17 @@ typedef struct
     }
 
     string ReadPARAM (PARAM &p) {
-        string s;
+        string s = "";
         if (exists(p.String))
             return p.String.String;
         if (exists(p.value))
-            if (p.Name.String == "MotionID")
+            if (exists(p.Name) && p.Name.String == "MotionID")
                 return ReadMotNodeId(p.value);
             SPrintf(s, "%g", p.value);
         return s;
     }
 
-    string ReadPARAMName (PARAM &p) { return EnumToString(p.paramType) + " " +  p.Name.String; }
+    string ReadPARAMName (PARAM &p) { return EnumToString(p.paramType) + " " + (exists(p.Name) ? p.Name.String : ""); }
 
 
 typedef struct
@@ -1956,7 +1978,7 @@ typedef struct
 //mtre
 typedef struct {
     start = FTell();
-    uint    version;
+    uint    version; // accounted for: 4, 5, 10, 13, 19, 20
     char    ID[4];
     FSkip(8);
 
@@ -1966,32 +1988,66 @@ typedef struct {
     uint64 mNodeDataTbl;
     uint64 mLinkDataTbl;
 
-    StringRead nameStr(-1, start, 0, 0, 0); ;
+    StringRead nameStr(-1, start, 0, 0, 0);
 
-    ushort motNodeIdTbl;
-    ushort mNodeCount;
-    ushort mLinkCount;
-    ushort rootNodeIndex;
-    ushort resourceCount;
+    if (version > 14) {
+        uint64 indicesOffset;
+    }
+    uint64 motNodeIdTbl;
     ushort motNodeCount;
-    ushort ukn;
-    ushort ukn;
-    ushort ukn;
+    ushort linkCount;
+    ushort uknCount;
+    ushort uknCount;
+    ushort motionsCount;
+    ushort selectMotionsCount;
+    ushort uknCount;
+    ushort uknCount;
 
-    FSeek(start + motNodeIdTbl);
-    ushort motNodeId[resourceCount] <read=ReadMotNodeIdShort>;
+    if (exists(indicesOffset) && indicesOffset > 0) {
+        FSeek(start + indicesOffset);
+        local int indicesRealCount = (motNodeIdTbl - indicesOffset) / 4;
+        // real count seems to rely on node contents and not header data
+        struct { ushort n1, n2; } nodeConnectionIndices[indicesRealCount] <read=Str("%d %d", n1, n2)>; // there's more indices after sometimes; NOT linkCount;
+    }
 
-    if (HEADER.Version!=653) { //fixme
+    if (motionsCount > 0) {
+        FSeek(start + motNodeIdTbl);
+
+        // real count seems to rely on node contents and not header data
+        local int realMotionCount = motionsCount + (selectMotionsCount > motionsCount ? (selectMotionsCount - motionsCount) * 2 : 0);
+        struct {
+            if (version < 13) {
+                uint16 srcId;
+                uint16 remappedId;
+            } else if (version == 13) {
+                uint32 srcId;
+                uint16 remappedId;
+            } else {
+                uint32 srcId;
+                uint32 remappedId;
+            }
+        } MotionIDRemap[realMotionCount] <read=Str("%d -> %d", srcId, remappedId), optimize=true>;
+    }
+
+    if (motNodeCount > 0) {
         FSeek(start + mNodeDataTbl);
         struct {
-            struct NodeData mNodeData[resourceCount] <optimize=false>;
+            struct NodeData mNodeData[motNodeCount] <optimize=false>;
         } Nodes;
-
-        FSeek(start + mLinkDataTbl);
-        struct {
-            struct LinkData mLinkData[motNodeCount] <optimize=false>;
-        } Links;
     }
+
+    struct {
+        for (k = 0; k < motNodeCount; k++) {
+            if (ReadByte() == 0)
+                break;
+            struct StringRead Name(FTell(), 0, 1, 1, 0);
+        }
+    } NodeNames;
+
+    FSeek(start + mLinkDataTbl);
+    struct {
+        struct LinkData mLinkData[linkCount] <optimize=false, read=Str("Type=%d   %d/%d : %d/%d", linkType, inputNodeIndex, inputPinNo, outputNodeIndex, outputPinNo)>;
+    } Links;
 
 } mtre <read=readmtre, name=readmtreName>;
 
@@ -2051,6 +2107,7 @@ typedef struct {
                 } BONE_CLIP_HEADERS; // <name="BONE CLIP HEADER">
 
             skipToNextLine();
+            FSeek(BONE_CLIP_HEADERS.bnClipHdr[0].trackHdrOffs+start);
             struct {
                 for (j = 0; j < MOT_HEADER.boneClipCount; j++)
                 {
@@ -2390,12 +2447,13 @@ else
     }
 
     motCounter = 0;
-    local uint motVersion <hidden=true>;
+    local uint motMagic <hidden=true>;
     for (i = 0; i < numOffs; i++)
     {
         FSeek(offs[i]);
-        motVersion = ReadUInt();
-        if (motVersion == 4 || motVersion == 5 || motVersion == 10 || motVersion == 19)
+        motMagic = ReadUInt(FTell() + 4);
+
+        if (motMagic == 0x6572746D)
         {
             //struct {
             //    FSeek( i < numOffs-1 ? offs[i+1] : (HEADER.colOffs > 0 ? HEADER.colOffs : FileSize) );
@@ -2404,7 +2462,7 @@ else
             mtre MTRE;
             SetForeColor(cNone);
         }
-        else if (motVersion == 7)
+        else if (motMagic == 0x74736C63)
         {
             struct {
                 FSeek( i < numOffs-1 ? offs[i+1] : (HEADER.colOffs > 0 ? HEADER.colOffs : FileSize) );
