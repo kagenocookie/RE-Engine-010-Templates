@@ -12,7 +12,7 @@
 LittleEndian();
 
 //Set this to TRUE to make the template skip decompressing all the frame data:
-local int SKIP_UNPACK <hidden=true> = TRUE;
+local int SKIP_UNPACK <hidden=true> = FALSE;
 local int SKIPALL <hidden=true> = FALSE;
 local int NOCLIP <hidden=true> = 0;
 
@@ -462,7 +462,7 @@ typedef struct {
             FSkip(3);
         }
         if (HEADER.version < 486)
-            uint32 pad <hidden=true>;
+            uint32 uknValue;
         float ValueA <name="Value A (Start)", write=WritePROPERTYFrame>;
         float ValueB <name="Value B (End)", write=WritePROPERTYFrame>;
         if (HEADER.version==60) {
@@ -477,12 +477,12 @@ typedef struct {
                 uint64 ChildStartIndex;
                 ushort ChildMembershipCount;
                 short arrayIndex;
-                if (HEADER.Version > 486)
+                if (HEADER.Version > 524)
                     ubyte speedPointNum;
                 else
                     short speedPointNum;
                 PropertyType DataType;
-                if (HEADER.Version > 486)
+                if (HEADER.Version > 524)
                     ubyte uknByte00;
                 ubyte uknByte;
                 uint64 lastKeyOffset;
@@ -697,7 +697,6 @@ typedef struct {
         uint64 clipDataOffs, propertiesOffs;
         uint64 keysOffs;
         uint64 uknOffset1;
-
         uint64 hermiteDataOffset;
 
         if (HEADER.version == 60)
@@ -773,7 +772,7 @@ typedef struct {
             struct StringRead Name(FTell(), 0, 1, 0, 0);
     } NamesUnicode <name="Names (Unicode)">;
 
-    if (clipHeader.endClipStructsOffs > 0) {
+    if (clipHeader.endClipStructsOffs > 0 && clipHeader.version > 18) { // 18 == re7, I don't think this exists here
         FSeek(clipHeader.endClipStructsOffs + start);
         skipToNextLine();
         struct {
@@ -891,148 +890,40 @@ typedef struct MotlistClip {
 	}
 
     //unknown CLIP data header stuff:
-    if (exists(MOT_HEADER) && MOT_HEADER.motEndClipDataOffset != 0 && ReadUInt64(MOT_HEADER.motEndClipDataOffset + start + 8) > 0 ) {
-        if (!exists(HEADER) || HEADER.Version <= 484) {
-            FSeek(MOT_HEADER.motEndClipDataOffset + start);
-            struct {
-                uint64 ukn;
-                uint64 dataSize;
-                uint32 objectCount, endHashCount;
-                uint64 Blank;
-                uint64 dataHdrSz1, dataHdrSz2;
-                struct {
-                    if (objectCount-1)
-                        struct {
-                            uint32 ukn, ukn;
-                            uint32 Hash, Hash;
-                            uint64 subStructsOffs;
-						    uint64 mainSubStructOffs;
-
-						    if (MOT_HEADER.motEndClipDataOffset + start + subStructsOffs < FileSize()) {
-							    FSeek(MOT_HEADER.motEndClipDataOffset + start + subStructsOffs);
-							    struct {
-								    uint32 ukn[12];
-                                    if (HEADER.version != 60) {
-								        FSeek(MOT_HEADER.motEndClipDataOffset + start + ukn[4]);
-								        ushort endFrame;
-                                    }
-							    } subStruct;
-						    }
-
-						    if (MOT_HEADER.motEndClipDataOffset + start + mainSubStructOffs < FileSize()) {
-							    FSeek(MOT_HEADER.motEndClipDataOffset + start + mainSubStructOffs);
-							    struct {
-								    uint32 ukn[8];
-								    FSeek(MOT_HEADER.motEndClipDataOffset + start + ukn[0]);
-								    uint ukn2[ukn[3]];
-							    } Sub_FrameData;
-						    }
-						    FSeek(startof(mainSubStructOffs)+8);
-                        } uknStruct[objectCount-1] <optimize=false>;
-                    struct {
-                        uint32 finalUkn, finalUkn, finalHash, finalHash;
-                        uint64 finalUkn1;
-                        uint32 endHash, finalUkn2;
-                    } finalUknStruct;
-                } uknStructs <name="Unknown Structures">;
-                struct {
-                    uint32 uknHash, ukn, endHash, ukn1;
-                    uint64 offset;
-                    pos2 = FTell();
-                    FSeek (MOT_HEADER.motEndClipDataOffset + offset + start);
-                    uint32 ukn2;
-                    FSeek(pos2);
-                } hashStruct[6] <optimize=false>;
-                if (objectCount > 1) {
-                    struct {
-                        for (j = 0; j < objectCount - 1; j++) {
-                            struct {
-                                if (uknStructs.uknStruct[j].mainSubStructOffs != 33845916581) {
-                                    FSeek(MOT_HEADER.motEndClipDataOffset + start + uknStructs.uknStruct[j].subStructsOffs);
-                                    struct {
-                                        uint64 offs_Or_Value;
-                                        uint32 hash, ukn;
-                                    } subStruct[3] <optimize=false, open=true>;
-                                    FSeek(MOT_HEADER.motEndClipDataOffset + start + uknStructs.uknStruct[j].mainSubStructOffs);
-                                    struct {
-                                        uint64 fDataOffs;
-                                        uint32 hash, frameCount;
-                                    } MainSubStruct <optimize=false, open=true>;
-                                    uint32 pad, ukn; uint64 padding;
-                                }
-                            } uknStruct2;
-                        }
-                    } uknStructs2 <name="Unknown Structures 2">;
-                }
-            } dataHeader;
-
-            if ((int)((MOT_HEADER.uknFloat[1] + 1) * 4) + dataHeader.hashStruct[0].offset + MOT_HEADER.motEndClipDataOffset + start < FileSize()) {
-                FSeek(dataHeader.hashStruct[0].offset + MOT_HEADER.motEndClipDataOffset + start);
-                struct {
-                    uint32 FrameData[MOT_HEADER.uknFloat[1] + 1];
-                    FSeek(dataHeader.hashStruct[1].offset + MOT_HEADER.motEndClipDataOffset + start);
-                    if ((int)((MOT_HEADER.uknFloat[1] + 1) * 4) + FTell() < FileSize())
-                        uint32 FrameIdx[MOT_HEADER.uknFloat[1] + 1];
-                    if (exists(dataHeader.uknStructs2.uknStruct2[0]))
-                    if ((MOT_HEADER.motEndClipDataOffset + start + dataHeader.uknStructs2.uknStruct2[0].MainSubStruct.fDataOffs) != (dataHeader.hashStruct[2].offset + MOT_HEADER.motEndClipDataOffset + start)) {
-                        FSeek(dataHeader.hashStruct[2].offset + MOT_HEADER.motEndClipDataOffset + start);
-                        uint32 FrameUkn[6];
-                        FSeek(dataHeader.hashStruct[4].offset + MOT_HEADER.motEndClipDataOffset + start);
-                        uint32 FrameUkn2[2];
-                    }
-                    if (dataHeader.objectCount > 1) {
-                        FSeek(MOT_HEADER.motEndClipDataOffset + start + dataHeader.uknStructs2.uknStruct2[0].MainSubStruct.fDataOffs);
-                        struct {
-                            for (j = 0; j < dataHeader.objectCount - 1; j++) {
-                                FSeek(MOT_HEADER.motEndClipDataOffset + start + dataHeader.uknStructs2.uknStruct2[j].MainSubStruct.fDataOffs);
-                                struct {
-                                    struct {
-                                        for (k = 0; k < dataHeader.uknStructs2.uknStruct2[j].MainSubStruct.frameCount; k++)
-                                            struct {
-                                                ubyte A, B, C, D;
-                                            } frame;
-                                    } Frames <open=true>;
-                                    local int count = dataHeader.uknStructs2.uknStruct2[j].MainSubStruct.frameCount;
-                                } FrameData ;
-                            }
-                        } Sub_FrameData;
-
-                        if (HEADER.version != 60)
-                            struct {
-                                for (j = 0; j < dataHeader.objectCount - 1; j++) {
-                                    FSeek(MOT_HEADER.motEndClipDataOffset + start + dataHeader.uknStructs2.uknStruct2[j].subStruct[1].offs_Or_Value);
-                                    ushort Frame;
-                                }
-                            } endFrameData;
-                    }
-                } Frame_Data <name="Frame Data">;
-            }
-            FSeek(MOT_HEADER.motEndClipDataOffset + start + dataHeader.dataSize);
-            uint32 endHashes[dataHeader.endHashCount * 2] <name="End Hashes">;
-        } else {
-            FSeek(MOT_HEADER.motEndClipDataOffset + start);
-            local int motClipDataCount = MOT_HEADER.motEndClipCount;
-            local int remainingMotClip = motClipDataCount;
-            uint64 firstMotEndClipOffset;
-            struct MotClipHeader {
+    if (exists(MOT_HEADER) && MOT_HEADER.motEndClipDataOffset != 0 && ReadUInt64(MOT_HEADER.motEndClipDataOffset + start) > 0 ) {
+        FSeek(MOT_HEADER.motEndClipDataOffset + start);
+        local int motClipDataCount = MOT_HEADER.motEndClipCount;
+        local int remainingMotClip = motClipDataCount;
+        uint64 firstMotEndClipOffset;
+        FSeek(firstMotEndClipOffset + start);
+        struct MotClipHeader {
+            if (MOT_HEADER.version < 486) {
+                uint64 valuesOffset;
+            } else {
                 if (remainingMotClip > 1) {
                     remainingMotClip = remainingMotClip - 1;
                     uint64 nextHeaderOffset;
                 }
+            }
+            ubyte count1, type1, count2, count3;
+            if (exists(valuesOffset)) {
+                FSeek(valuesOffset + start);
+            }
+            if (count1 > 100) { // edge case hack
+                FSkip(4);
                 ubyte count1, type1, count2, count3;
-                if (count1 > 100) {
-                    FSkip(4);
-                    ubyte count1, type1, count2, count3;
-                }
-                if (type1 == 2 || type1 == 4) {
-                    float values1[count1 * type1];
-                } else {
-                    float values1[count1 + type1];
-                }
-                if (count2 > 0 || count3 > 0) float values2[1]; // idk, these counts are weird
-                align(8);
-            } dataHeader[MOT_HEADER.motEndClipCount] <optimize=false>;
+            }
+            if (type1 == 2 || type1 == 4) {
+                float values1[count1 * type1];
+            } else {
+                float values1[count1 + type1];
+            }
+            if (count2 > 0 || count3 > 0) float values2[1]; // idk, these counts are weird
             align(8);
+        } dataHeader[MOT_HEADER.motEndClipCount] <optimize=false>;
+
+        if (exists(MOT_HEADER.motEndClipFrameValuesOffset)) {
+            FSeek(MOT_HEADER.motEndClipFrameValuesOffset + start);
             uint64 floatPairsOffsets[motClipDataCount];
             struct {
                 align(8);
@@ -1643,20 +1534,14 @@ typedef struct motHdr {
     uint64  offsToBoneHdrOffs <format=hex>;       //BoneBaseDataPointer
     uint64  boneClipHdrOffs <format=hex>;    //BoneDataPointer
     uint64  motTracksOffset <format=hex>;
+    uint64  zero;
+    uint64  clipFileOffset;
+    uint64  jmapOffset;
+    uint64  motEndClipDataOffset;
     if (version >= 456) {
-		FSkip(8);
-        uint64  clipFileOffset <format=hex>;
-        uint64  jmapOffset <format=hex>;
-        uint64  motEndClipDataOffset <format=hex>;
-        uint64  stringsOffset <format=hex>;
-        uint64  motPropertyTreeOffset <format=hex>;
-    } else {
-        uint64  jmapOffset <format=hex>;
-        uint64  clipFileOffset <format=hex>;
-        uint64  stringsOffset <format=hex>;
-        FSkip(8);
-        uint64  motEndClipDataOffset <format=hex>;
+        uint64  motEndClipFrameValuesOffset;
     }
+    uint64  motPropertyTreeOffset;
 
     uint64  namesOffs <format=hex>;
     float   frameCount;
@@ -2198,6 +2083,11 @@ typedef struct {
                         FSeek(treeStart + dataOffsetOrValue);
                         uint data[count];
                         FSeek(p);
+                    } else if (type == 15) {
+                        local uint64 p = FTell();
+                        FSeek(treeStart + dataOffsetOrValue);
+                        wstring str;
+                        FSeek(p);
                     }
                 };
                 typedef struct MultiValueNode {
@@ -2302,11 +2192,32 @@ typedef struct  {
     if (HEADER.version > 60) uint64 extraClipOffset;
     ushort motNumber;
     ushort Switch <hidden=false>;
-    for (k=0; k<(int)((motIndexSz - 12) / 4); k++)
-        if (detectedFloat(FTell()))
-            float data;
-        else
-            uint data;
+    if (motIndexSz > 0) {
+        if (motIndexSz >= 24) {
+            uint ukn1;
+            uint ukn2;
+            ubyte ukn;
+            ubyte ukn;
+            ubyte ukn;
+            ubyte extraClipCount;
+            if (motIndexSz > 24) uint data[(motIndexSz / 4) - 6];
+        } else if (HEADER.version > 60) {
+            local uint extraClipCount = (extraClipOffset > 0 ? 1 : 0);
+            uint data[(motIndexSz / 4) - 3];
+        }
+
+        if (exists(extraClipOffset) && extraClipOffset > 0) {
+            FSeek(extraClipOffset);
+            uint64 extraClipOffsets[extraClipCount];
+
+            start = 0;
+            local int c = 0;
+            for (c = 0; c < extraClipCount; c++) {
+                FSeek(extraClipOffsets[c]);
+                CLIP_ENTRY END_CLIP;
+            }
+        }
+    }
     FSeek(startof(this)+motIndexSz);
     local uint32 index <hidden=true> = i ;
 } motIndex <read=ReadMotIndex, name=ReadMotIndexName>; //
@@ -2482,21 +2393,6 @@ else
             motIndex MotionID;
     } MotionIDs;
     //Printf("Checking %u %u\n", FTell(), ReadUInt64(FTell()));
-    if (FTell() < FileSize() - 8 && (ReadUInt64(FTell()) == FTell() + 8 || ReadUInt64(FTell()) == FTell() + 16) ) {
-        start = 0;
-        isEndOfClip = TRUE;
-        struct {
-            local int nextCLIP <hidden=true> = findNextOfInt(1346980931);
-            while (nextCLIP != FileSize() && nextCLIP < FTell() + 190 ) {
-                FSeek(nextCLIP-68);
-                CLIP_ENTRY Clip;
-                nextCLIP = findNextOfInt(1346980931);
-            }
-        } END_CLIP;
-
-    } //else Printf("%i\n", FTell());
-    FSeek(FileSize()-1);
-    ubyte FileEnd <name="End of File", read=ReadFileEnd, write=null>;
 }
 string ReadFileEnd(ubyte &u) { local string s; SPrintf(s, "%u", FileSize()); return s; }
 
