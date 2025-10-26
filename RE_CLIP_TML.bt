@@ -201,7 +201,7 @@ struct{
 	uint64 speedPointTblPtr;
 	uint64 interpolationHermiteTblPtr;
     if (version != 54) // TODO probably wrong
-	    uint64 interpolationHermite3DTblPtr;
+	    uint64 bezier3DTblPtr;
     if (version <= 27)
 	    uint64 uknTblPtr;
     uint64 clipInfoTblPtr;
@@ -571,24 +571,41 @@ struct {
 if (header.speedPointTblPtr != header.interpolationHermiteTblPtr) {
     FSeek(header.speedPointTblPtr);
     struct {
-        uint64 ukn, ukn, ukn;
         float uknFloat, uknFloat;
         uint64 ukn, ukn;
-    } SpeedPoint[header.propertyNum];
+    } SpeedPoint[(header.interpolationHermiteTblPtr - header.speedPointTblPtr) / 24];
 }
 
-if (exists(header.clipInfoNum) && header.clipInfoNum > 0 && version > 43) { // idfk lol
+if (header.interpolationHermiteTblPtr != (exists(header.bezier3DTblPtr) ? header.bezier3DTblPtr : header.clipInfoTblPtr))
+{
+    struct {
+        float x1, y1;
+        float x2, y2;
+    } HermiteData[((exists(header.bezier3DTblPtr) ? header.bezier3DTblPtr : header.clipInfoTblPtr) - header.interpolationHermiteTblPtr) / 16];
+}
+
+if (exists(header.bezier3DTblPtr)) {
+    struct {
+        float floats[8];
+    } Bezier3DData[(header.clipInfoTblPtr - header.bezier3DTblPtr) / 32];
+}
+
+if (header.c8Ptr != header.clipInfoTblPtr) {
     FSeek(header.clipInfoTblPtr);
     struct {
-        float a;
+        float f1;
+        float f2;
+        uint a;
         uint b;
         uint c;
-        uint d;
-        uint e;
-        uint f;
-        uint64 g;
-        uint64 h;
-    } ClipInfo[header.clipInfoNum * 2];
+        float ukn;
+        uint ukn;
+        uint ukn;
+        if (version < 34) {
+            uint ukn;
+            uint ukn;
+        }
+    } ClipInfo[(header.c8Ptr - header.clipInfoTblPtr) / (version < 34 ? 40 : 32)] <optimize=true>;
 }
 
 FSeek(header.c8Ptr);
