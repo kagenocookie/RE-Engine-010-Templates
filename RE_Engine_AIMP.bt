@@ -75,10 +75,11 @@ uint16 reserved<hidden=true>;
 if (format >= 46) {
     float AgentRadWhenBuild;
     uint64 uriHash;
+    uint32 uknID;
 } else if (format >= 28) {
     GUID guid;
+    uint32 uknID;
 }
-uint32 uknID;
 
 uint64 layersOffset;
 if (format > 8) {
@@ -306,11 +307,14 @@ struct ContentGroupContainer {
     }
 
     if (format > 8) {
-        // god knows what this is, using the bounds Vector4's padding bytes as an indicator
-        if (ReadInt(FTell() + 36) != 0 || ReadInt(FTell() + 36 - sizeof(vec3p)) != 0) {
+        // god knows what this is, maybe a sectionType override, seems to be always 0
+        // if (ReadInt(FTell() + 36) != 0 || ReadInt(FTell() + 36 - sizeof(vec3p)) != 0) {
+        if (sectionType == 0) {
             uint32 mysteryPadding <read="YES">;
         }
 
+        // walkableHeight, radius, climb?
+        // quantization factor?
         float float1, float2;
         AABB bounds;
         NodeTypeData nodeTypes;
@@ -515,12 +519,14 @@ struct {
             EmbeddedPreData preData;
 
             EmbeddedContentData data1;
-            if (format > 41) {
+            if (format >= 41) {
                 EmbeddedContentData data2;
 
-                FixedWString key <read=ReadFixedWString>;
+                if (format > 41) {
+                    FixedWString key <read=ReadFixedWString>;
+                }
             }
-        } embed[count] <optimize=false, read=(exists(key.str) ? key.str : Str("%d %d", hash))>;
+        } embed[count] <optimize=false, read=(exists(key.str) ? key.str : (format <= 41 ? GUIDToString(hash) : Str("%d", hash)))>;
     }
 
 } embeddedData;
