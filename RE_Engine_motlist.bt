@@ -277,8 +277,8 @@ typedef struct KEY {
         FSkip(-8);
         double value;
     }
-    //FSeek(startof(value)+16);
-    //uint64 interpolationOffset;
+    FSeek(startof(this)+24);
+    uint64 hermiteKeyIndex;
     FSeek(startof(this)+keySize);
 };
 
@@ -484,15 +484,13 @@ typedef struct {
                 PropertyType DataType;
                 if (HEADER.Version > 524)
                     ubyte uknByte00;
-                ubyte uknByte;
+                ubyte uknByte : 4;
+                ubyte clipType : 2;
+                ubyte uknByte : 2;
                 uint64 lastKeyOffset;
                 if (HEADER.version < 751) {
                     uint64 speedPointOffset;
                     uint64 clipPropertyOffset;
-                }
-                if (HEADER.version >= 992) {
-                    float f1, f2, f3, f4;
-                    uint64 uknOffset;
                 }
         } else {
             if (HEADER.version == 60) {
@@ -556,12 +554,24 @@ typedef struct {
                 struct PROPERTY ChildProp[PropInfo.ChildMembershipCount] <optimize=false>;
             break;
         default:
-            FSeek(clipHeader.keysOffs + start + (keySize*PropInfo.ChildStartIndex));
-            if (PropInfo.ChildMembershipCount){
+            if (PropInfo.ChildMembershipCount) {
                 Type = PropInfo.DataType;
-                for (j=0; j<PropInfo.ChildMembershipCount; j++)
-                    if (FTell()+28 <= FileSize())
-                        struct clipKey Keys;
+                if (exists(PropInfo.clipType) && PropInfo.clipType == 3) {
+                    FSeek(clipHeader.shortValueKeyOffs + start + (16*PropInfo.ChildStartIndex));
+                    for (j=0; j<PropInfo.ChildMembershipCount; j++)
+                        if (FTell()+28 <= FileSize())
+                            struct shortValueKey Keys;
+                } else if (exists(PropInfo.clipType) && PropInfo.clipType == 1) {
+                    FSeek(clipHeader.shortKeyOffs + start + (8*PropInfo.ChildStartIndex));
+                    for (j=0; j<PropInfo.ChildMembershipCount; j++)
+                        if (FTell()+28 <= FileSize())
+                            struct shortKey Keys;
+                } else {
+                    FSeek(clipHeader.keysOffs + start + (keySize*PropInfo.ChildStartIndex));
+                    for (j=0; j<PropInfo.ChildMembershipCount; j++)
+                        if (FTell()+28 <= FileSize())
+                            struct clipKey Keys;
+                }
             }
             break;
     }
@@ -653,7 +663,7 @@ typedef struct {
 
 typedef struct {
 
-    if (HEADER.Version == 663 || HEADER.Version == 653 || HEADER.Version == 751) {
+    if (HEADER.Version >= 653) {
         propSize = 56;
         keySize = 32;
     } else if (HEADER.version == 486 || HEADER.version == 484) {
@@ -684,11 +694,13 @@ typedef struct {
         uint32 Magic;
         uint32 version;
         float NumFrames;
-        uint32 numNodes, numProperties, numKeys;
-
-        if (version >= 85)
-        {
-            uint32 uknCount1, uknCount2, uknCount3, uknCount4;
+        uint32 numNodes, numProperties;
+        uint32 numKeys;
+        if (version >= 85) {
+            uint32 shortKeys;
+            uint32 uknKeysCount1;
+            uint32 shortValueKeys;
+            uint32 uknKeysCount2;
         }
 
         if (HEADER.version != 99 && HEADER.version < 486)
@@ -696,6 +708,11 @@ typedef struct {
 
         uint64 clipDataOffs, propertiesOffs;
         uint64 keysOffs;
+        if (version >= 85) {
+            uint64 shortKeyOffs;
+            uint64 keyOffs4;
+            uint64 shortValueKeyOffs;
+        }
         uint64 uknOffset1;
         uint64 hermiteDataOffset;
 
@@ -703,8 +720,8 @@ typedef struct {
             uint64 namesOffsExtra[3];
         else if (HEADER.Version == 663 || HEADER.Version==653)
             uint64 namesOffsExtra[1];
-        else if (HEADER.Version >= 992)
-            uint64 namesOffsExtra[5];
+        else if (version >= 85)
+            uint64 namesOffsExtra[2];
         else if (HEADER.Version == 85)
             uint64 namesOffsExtra[3];
         else
@@ -734,13 +751,22 @@ typedef struct {
         } Properties;
     }
 
-    if (HEADER.version == 99)
+    if (clipHeader.numKeys > 0) {
         FSeek(clipHeader.keysOffs + start);
-    else
-        FSeek(clipHeader.keysOffs + start);
-
-    if (clipHeader.numKeys > 0)
         struct clipKey Keys[clipHeader.numKeys] <optimize=true>;
+    }
+    if (exists(clipHeader.shortKeys) && clipHeader.shortKeys) {
+        FSeek(clipHeader.shortKeyOffs + start);
+        struct shortKey { float frame; ubyte interpolation; ubyte flags; uint16 nulls; } ShortKeys[clipHeader.shortKeys];
+    }
+    if (exists(clipHeader.shortValueKeys) && clipHeader.shortValueKeys) {
+        FSeek(clipHeader.shortValueKeyOffs + start);
+        struct shortValueKey {
+            float frame;
+            ubyte interpolation; ubyte flags; uint16 nulls;
+            uint64 valueOrOffset;
+        } shortValueKeys[clipHeader.shortValueKeys] <read=Str("%f %d", frame, valueOrOffset)>;
+    }
 
     if (clipHeader.hermiteDataOffset < clipHeader.namesOffsExtra[0]) {
         FSeek(clipHeader.hermiteDataOffset+start);
@@ -993,17 +1019,35 @@ typedef ulong LocFrameType_t<name="Translation Decompression", read=ReadLocFrame
         {   //RE3
             case 0x00000: string s = "LoadVector3sFull"; break;
             case 0x20000: string s = "LoadVector3s5BitB"; break;
+            case 0x25000: string s = "LoadVector3sXYAxis8Bit"; break;
+            case 0x26000: string s = "LoadVector3sXZAxis8Bit"; break;
+            case 0x27000: string s = "LoadVector3sXYAxis8Bit"; break;
+            case 0x27000: string s = "LoadVector3s5BitB"; break; // TODO verify exists and correct - pragmata conflict
             case 0x30000: string s = "LoadVector3s5BitB"; break;
             case 0x40000: string s = "LoadVector3s10BitB"; break;
+            case 0x50000: string s = "LoadVector3s5BitUnpadded"; break;
+            case 0x60000: string s = "LoadVector3s24Bit"; break;
             case 0x80000: string s = "LoadVector3s21BitB"; break;
+            case 0x87000: string s = "LoadVector3sUknNew"; break;
             case 0x21000: string s = "LoadVector3sXAxis16Bit"; break;
             case 0x22000: string s = "LoadVector3sYAxis16Bit"; break;
             case 0x23000: string s = "LoadVector3sZAxis16Bit"; break;
             case 0x24000: string s = "LoadVector3sXYZAxis16Bit"; break;
+            case 0x31000: string s = "LoadVector3sXAxisB"; break;
+            case 0x32000: string s = "LoadVector3sYAxisB"; break;
+            case 0x33000: string s = "LoadVector3sZAxisB"; break;
+            case 0x37000: string s = "LoadVector3s3ByteUknPragmata"; break;
             case 0x41000: string s = "LoadVector3sXAxis"; break;
             case 0x42000: string s = "LoadVector3sYAxis"; break;
             case 0x43000: string s = "LoadVector3sZAxis"; break;
             case 0x44000: string s = "LoadVector3sXYZAxis"; break;
+            case 0x45000: string s = "LoadVector3sYZAxis16Bit"; break;
+            case 0x46000: string s = "LoadVector3sXZAxis16Bit"; break;
+            case 0x47000: string s = "LoadVector3sXYAxis16Bit"; break;
+            case 0x55000: string s = "LoadVector3sXYAxis20Bit"; break;
+            case 0x56000: string s = "LoadVector3sXZAxis20Bit"; break;
+            case 0x57000: string s = "LoadVector3sZXAxis20Bit"; break;
+            case 0x70000: string s = "LoadVector3s18Bit"; break;
             default: string s = "Unknown Type"; break;
         }
     }
@@ -1013,12 +1057,12 @@ typedef ulong LocFrameType_t<name="Translation Decompression", read=ReadLocFrame
 typedef float VectorFull <read=VectorRead, write=VectorWrite>;
     string VectorRead( VectorFull f ) {
         string s;
-        SPrintf( s, "%f", f*100.0f );
+        SPrintf( s, "%f", f );
         return s;
     }
     void VectorWrite( VectorFull &f, string s ) {
         local float ff = Atof(s);
-        f = (VectorFull )( (float)(ff / 100.0f) );
+        f = (VectorFull )( (float)(ff) );
     }
 
 typedef ulong RotFrameType_t<name="Rotation Decompression", read=ReadRotFrameType, write=WriteRotFrameType>;
@@ -1116,7 +1160,7 @@ typedef struct track {
     local ubyte cmprssn <name="Track compression type"> = flags >> 20;
     local uint keyFrameDataType <format=hex> = flags & 0xF00000;
     local uint compression <format=hex> = flags & 0xFF000;
-    local uint unkFlag <format=hex> = flags & 0xFFF;
+    local uint trackType <format=hex> = flags & 0xFFF;
 
 };
 
@@ -1154,6 +1198,50 @@ typedef struct framedatatrns (uint32 keyCount, uint32 flags, uint64 frameDataOff
                         }
                         break;
 
+                    case 0x50000:                       //LoadVector3s5BitUnpadded Pragmata
+                        uint64 TranslationData; FSkip(-3); if (SKIP_UNPACK) break;
+                        // local float N13_1 = ((TranslationData >> 00) & 0x1FFF) * (1.0f / 0x1FFF);
+                        // local float N13_2 = ((TranslationData >> 13) & 0x1FFF) * (1.0f / 0x1FFF);
+                        // local float N13_3 = ((TranslationData >> 26) & 0x1FFF) * (1.0f / 0x1FFF);
+
+                        // local float N20_1 = ((TranslationData >> 00) & 0xFFFFF) * (1.0f / 0xFFFFF);
+                        // local float N20_2 = ((TranslationData >> 20) & 0xFFFFF) * (1.0f / 0xFFFFF);
+
+                        local float B0 = ((TranslationData >> 0) & 0xFF)  * (1.0f / 0xFF); // plausible
+                        local float B1 = ((TranslationData >> 8) & 0xFF)  * (1.0f / 0xFF); // unlikely
+                        local float B2 = ((TranslationData >> 16) & 0xFF) * (1.0f / 0xFF); // unlikely
+                        local float B3 = ((TranslationData >> 24) & 0xFF) * (1.0f / 0xFF); // unlikely
+                        local float B4 = ((TranslationData >> 32) & 0xFF) * (1.0f / 0xFF); // v unlikely
+
+                        local float BH0 = ((TranslationData >> 0) & 0xFFF)  * (1.0f / 0xFFF); // unlikely
+                        local float BH1 = ((TranslationData >> 8) & 0xFFF)  * (1.0f / 0xFFF); // unlikely
+                        local float BH2 = ((TranslationData >> 12) & 0xFFF) * (1.0f / 0xFFF); // unlikely
+                        local float BH3 = ((TranslationData >> 16) & 0xFFF) * (1.0f / 0xFFF); // maybe?
+                        local float BH4 = ((TranslationData >> 20) & 0xFFF) * (1.0f / 0xFFF); // unlikely
+                        local float BH5 = ((TranslationData >> 24) & 0xFFF) * (1.0f / 0xFFF); // unlikely
+                        local float BH6 = ((TranslationData >> 28) & 0xFFF) * (1.0f / 0xFFF); // unlikely
+
+                        local float S0 = ((TranslationData >> 0) & 0xFFFF)  * (1.0f / 0xFFFF); // unlikely
+                        local float S1 = ((TranslationData >> 8) & 0xFFFF)  * (1.0f / 0xFFFF); // unlikely
+                        local float S2 = ((TranslationData >> 16) & 0xFFFF) * (1.0f / 0xFFFF); // unlikely
+                        local float S3 = ((TranslationData >> 24) & 0xFFFF) * (1.0f / 0xFFFF); // plausible
+
+                        local float T0 = ((TranslationData >> 0) & 0xFFFFFF)  * (1.0f / 0xFFFFFF); // unlikely
+                        local float T1 = ((TranslationData >> 8) & 0xFFFFFF)  * (1.0f / 0xFFFFFF); // unlikely
+                        local float T2 = ((TranslationData >> 16) & 0xFFFFFF) * (1.0f / 0xFFFFFF); // unlikely
+
+                        local float V13A_0 = ((TranslationData >> 0) & 0x1FFF)  * (1.0f / 0x1FFF); // v unlikely
+                        local float V13A_1 = ((TranslationData >> 13) & 0x1FFF) * (1.0f / 0x1FFF); // unlikely
+                        local float V13A_2 = ((TranslationData >> 26) & 0x1FFF) * (1.0f / 0x1FFF); // maybe
+
+                        local float V13B_0 = ((TranslationData >> 8) & 0x1FFF)  * (1.0f / 0x1FFF); // unlikely
+                        local float V13B_1 = ((TranslationData >> 21) & 0x1FFF) * (1.0f / 0x1FFF); // unlikely
+
+                        local float X = unpackData[0] * (((TranslationData >> 00) & 0x1FFF) * (1.0f / 0x1FFF)) + unpackData[3];
+                        local float Y = unpackData[1] * (((TranslationData >> 13) & 0x1FFF) * (1.0f / 0x1FFF)) + unpackData[4];
+                        local float Z = unpackData[2] * (((TranslationData >> 26) & 0x1FFF) * (1.0f / 0x1FFF)) + unpackData[5];
+                        break;
+
                     case 0x34000:
                         if (MOT_HEADER.version == 65) { //LoadScalesXYZ RE2
                             float X;
@@ -1183,11 +1271,27 @@ typedef struct framedatatrns (uint32 keyCount, uint32 flags, uint64 frameDataOff
                         }
                         break;
 
-                    case 0x70000:                       //LoadVector3s21BitA  RE2
-                        uint64 TranslationData; if (SKIP_UNPACK) break;
-                        local float X = unpackData[0] * (((TranslationData >> 00) & 0x1FFFFF) / 2097151.0f) + unpackData[4];
-                        local float Y = unpackData[1] * (((TranslationData >> 21) & 0x1FFFFF) / 2097151.0f) + unpackData[5];
-                        local float Z = unpackData[2] * (((TranslationData >> 42) & 0x1FFFFF) / 2097151.0f) + unpackData[6];
+                    case 0x60000:                       //LoadVector3s24Bit  Pragmata
+                        uint16 TranslationData[3]; if (SKIP_UNPACK) break;
+                        local float X = unpackData[0] * (((TranslationData[0]) & 0xFFFF) * (1.0f / 0xFFFF)) + unpackData[3];
+                        local float Y = unpackData[1] * (((TranslationData[1]) & 0xFFFF) * (1.0f / 0xFFFF)) + unpackData[4];
+                        local float Z = unpackData[2] * (((TranslationData[2]) & 0xFFFF) * (1.0f / 0xFFFF)) + unpackData[5];
+                        break;
+
+                    case 0x70000:                       //LoadVector3s18Bit
+                        if (MOT_HEADER.version >= 78) {
+                            // LoadVector3s18Bit OK for pragmata
+                            uint64 TranslationData; FSkip(-1); if (SKIP_UNPACK) break;
+                            local float X = (unpackData[0] * ((TranslationData >> 00) & 0x3FFFF) / 262143.0f) + unpackData[3];
+                            local float Y = (unpackData[1] * ((TranslationData >> 18) & 0x3FFFF) / 262143.0f) + unpackData[4];
+                            local float Z = (unpackData[2] * ((TranslationData >> 36) & 0x3FFFF) / 262143.0f) + unpackData[5];
+                        } else {
+                            //LoadVector3s21BitA  RE2 TODO verify
+                            uint64 TranslationData; if (SKIP_UNPACK) break;
+                            local float X = unpackData[0] * (((TranslationData >> 00) & 0x1FFFFF) / 2097151.0f) + unpackData[4];
+                            local float Y = unpackData[1] * (((TranslationData >> 21) & 0x1FFFFF) / 2097151.0f) + unpackData[5];
+                            local float Z = unpackData[2] * (((TranslationData >> 42) & 0x1FFFFF) / 2097151.0f) + unpackData[6];
+                        }
                         break;
 
                     case 0x80000:                       //LoadVector3s21BitB  RE3
@@ -1211,11 +1315,35 @@ typedef struct framedatatrns (uint32 keyCount, uint32 flags, uint64 frameDataOff
                         local float Z = unpackData[2];
                         break;
 
-                    case 0x33000:                       //LoadVector3sZAxis RE2
+                    case 0x33000:
+                        if (MOT_HEADER.version >= 993) { // WhateverThisIs Pragmata
+                            ubyte TranslationData[3]; if (SKIP_UNPACK) break;  // TODO
+                            local uint32 EndianSwapped = (TranslationData[2] | ((uint)(TranslationData[1]) << 8) | ((uint)(TranslationData[0]) << 16));
+                            local float X = unpackData[1];
+                            local float Y = unpackData[2];
+                            // local float Z = unpackData[0] * ((TranslationData & 0xFFF) * (1.0f / 0xFFF)) + unpackData[3];
+                            local float Z = unpackData[0] * (EndianSwapped * (1.0f / 0xFFFFFF)) + unpackData[3];
+                            break;
+                        }
+                        //LoadVector3sZAxis RE2
                     case 0x43000:                       // RE3
                         local float X = unpackData[0];
                         local float Y = unpackData[1];
                         float Z;
+                        break;
+
+                    case 0x37000: // LoadVector3s3ByteUknPragmata TODO
+                        ubyte TranslationData[3];
+                        local float X = unpackData[0] * (((TranslationData[0]) & 0xFF) * (1.0f / 0xFF)) + unpackData[3];
+                        local float Y = unpackData[1] * (((TranslationData[1]) & 0xFF) * (1.0f / 0xFF)) + unpackData[4];
+                        local float Z = unpackData[2] * (((TranslationData[2]) & 0xFF) * (1.0f / 0xFF)) + unpackData[4];
+                        break;
+
+                    case 0x27000:                       //LoadVector3sXYAxis8Bit
+                        ubyte TranslationData[2]; if (SKIP_UNPACK) break;
+                        local float X = unpackData[0] * (TranslationData[0] * (1.0f / 0xFF)) + unpackData[1];
+                        local float Y = unpackData[2] * (TranslationData[1] * (1.0f / 0xFF)) + unpackData[3];
+                        local float Z = unpackData[4];
                         break;
 
                     case 0x21000:                       //LoadVector3sXAxis16Bit
@@ -1247,6 +1375,61 @@ typedef struct framedatatrns (uint32 keyCount, uint32 flags, uint64 frameDataOff
                     case 0x44000:                       //LoadVector3sXYZAxis RE3
                         float TranslationData;
                         local float X, Y, Z = TranslationData;
+                        break;
+
+                    case 0x45000:                       //LoadVector3sYZAxis16Bit TODO
+                    case 0x46000:                       //LoadVector3sXZAxis16Bit TODO
+                    case 0x47000:                       //LoadVector3sXYAxis16Bit
+                        uint16 TranslationData[2]; if (SKIP_UNPACK) break;
+                        local float X = unpackData[0] * (TranslationData[0] * (1.0f / 0xFFFF)) + unpackData[1];
+                        local float Y = unpackData[2] * (TranslationData[1] * (1.0f / 0xFFFF)) + unpackData[3];
+                        local float Z = unpackData[4];
+                        break;
+
+                    case 0x55000:                       //LoadVector3sXYAxis20Bit
+                        uint64 TranslationData; FSkip(-3); if (SKIP_UNPACK) break;
+                        local float Val1 = (TranslationData & 0xFFFFF) * (1.0f / 0xFFFFF);
+                        local float Val2 = ((TranslationData >> 20) & 0xFFFFFF) * (1.0f / 0xFFFFFF);
+                        local float X = unpackData[0] * (((TranslationData >> 00) & 0xFFFFF) * (1.0f / 0xFFFFF)) + unpackData[2];
+                        local float X = unpackData[1] * (((TranslationData >> 20) & 0xFFFFF) * (1.0f / 0xFFFFF)) + unpackData[3];
+                        local float Z = unpackData[4];
+                        break;
+                    case 0x56000:                       //LoadVector3sXZAxis20Bit
+                        uint64 TranslationData; FSkip(-3); if (SKIP_UNPACK) break;
+                        local float X = unpackData[0] * (((TranslationData >> 00) & 0xFFFFF) * (1.0f / 0xFFFFF)) + unpackData[2];
+                        local float Y = unpackData[1] * (((TranslationData >> 20) & 0xFFFFF) * (1.0f / 0xFFFFF)) + unpackData[3];
+                        local float Z = unpackData[4];
+                        break;
+                    case 0x57000:                       //LoadVector3sZXAxis20Bit
+                        uint64 TranslationData; FSkip(-3); if (SKIP_UNPACK) break;
+                        local float X = unpackData[1] * (((TranslationData >> 20) & 0xFFFFF) * (1.0f / 0xFFFFF)) + unpackData[2];
+                        local float Y = unpackData[3];
+                        local float Z = unpackData[0] * (((TranslationData >> 00) & 0xFFFFF) * (1.0f / 0xFFFFF)) + unpackData[4];
+                        break;
+
+                    case 0x85000:                       //LoadVector3sUknPragmata1
+                        float TranslationData[2]; if (SKIP_UNPACK) break;
+                        local float X = TranslationData[0] + unpackData[0];
+                        local float Y = TranslationData[1] + unpackData[1];
+                        local float Z = unpackData[2];
+                        break;
+                    case 0x86000:                       //LoadVector3sUknPragmata2
+                        float TranslationData[2]; if (SKIP_UNPACK) break;
+                        local float X = TranslationData[0] + unpackData[0];
+                        local float Y = unpackData[1];
+                        local float Z = TranslationData[1] + unpackData[2];
+                        break;
+                    case 0x87000:                       //LoadVector3sUknPragmata3
+                        float TranslationData[2]; if (SKIP_UNPACK) break;
+                        // local float X = unpackData[2] * (((TranslationData >> 00) & 0x1FFFFF) * (1.0f / 0x1FFFFF));
+                        // local float Num0_21 = (((TranslationData >> 00) & 0x1FFFFF) * (1.0f / 0x1FFFFF));
+                        // local float Num21_42 = (((TranslationData >> 21) & 0x1FFFFF) * (1.0f / 0x1FFFFF));
+                        // local float Num42_63 = (((TranslationData >> 42) & 0x1FFFFF) * (1.0f / 0x1FFFFF));
+                        local float X = unpackData[0];
+                        local float Y = TranslationData[0] + unpackData[1];
+                        local float Z = TranslationData[1] + unpackData[2];
+                        // local float Y = unpackData[1] + (((TranslationData >> 21) & 0x1FFFFF) * (1.0f / 0x1FFFFF));
+                        // local float Z = unpackData[2] * (((TranslationData >> 42) & 0x1FFFFF) * (1.0f / 0x1FFFFF)) + unpackData[1];
                         break;
 
                     default:
@@ -1401,6 +1584,9 @@ typedef struct framedatarot (uint32 keyCount, uint32 flags, uint64 frameDataOffs
                             break;
                         }
                     case 0x60000:                       //LoadQuaternions16Bit RE3
+                        if (MOT_HEADER.version >= 991) {
+                            // TODO Pragmata needs endian flip
+                        }
                         ushort RotationDataX, RotationDataY, RotationDataZ; if (SKIP_UNPACK) break;
                         local float RotationX = (MaxUnpackX * (RotationDataX / 65535.0f) + MinUnpackX);
                         local float RotationY = (MaxUnpackY * (RotationDataY / 65535.0f) + MinUnpackY);
@@ -2137,17 +2323,12 @@ typedef struct {
 
 } mot <read=ReadMOT, name=ReadMOTName>;//, size=SizeMOT>;
 
-    string ReadMOT ( mot &input ) {
+    wstring ReadMOT ( mot &input ) {
         local string s;
-        if (input.MOT_HEADER.version <= 78)
-            SPrintf(s," (%g frames)", ReadFloat(startof(input)+88));
-        else
-            SPrintf(s," (%g frames)", ReadFloat(startof(input)+96));
+        SPrintf(s," (%g frames)", input.MOT_HEADER.frameCount);
         local uint motVersion = ReadUInt(startof(input));
-		//if (motVersion == 458 || motVersion == 456 || motVersion == 495) {
-        if (motVersion >= 456) {
-			return ReadWString(startof(input) + ReadUInt64(startof(input) + 88)) + s;
-		} else return ReadWString(startof(input) + 116) + s;
+
+		return ReadWString(startof(input) + input.MOT_HEADER.namesOffs) + s;
 	}
 
     string ReadMOTName (mot &input) {
@@ -2193,17 +2374,22 @@ typedef struct  {
     ushort motNumber;
     ushort Switch <hidden=false>;
     if (motIndexSz > 0) {
-        if (motIndexSz >= 24) {
+        if (HEADER.version >= 486) {
             uint ukn1;
             uint ukn2;
             ubyte ukn;
             ubyte ukn;
             ubyte ukn;
             ubyte extraClipCount;
-            if (motIndexSz > 24) uint data[(motIndexSz / 4) - 6];
+            if (HEADER.version > 486) uint data[12];
+            else uint data[3];
         } else if (HEADER.version > 60) {
             local uint extraClipCount = (extraClipOffset > 0 ? 1 : 0);
-            uint data[(motIndexSz / 4) - 3];
+            uint data[3];
+            if (extraClipOffset > 0) {
+                FSeek(extraClipOffset);
+                CLIP_ENTRY END_CLIP;
+            }
         }
 
         if (exists(extraClipOffset) && extraClipOffset > 0) {
@@ -2214,6 +2400,7 @@ typedef struct  {
             local int c = 0;
             for (c = 0; c < extraClipCount; c++) {
                 FSeek(extraClipOffsets[c]);
+                if (HEADER.version >= 1057) start = FTell();
                 CLIP_ENTRY END_CLIP;
             }
         }
@@ -2319,8 +2506,10 @@ else
         uint64  pointersOffs <format=hex>; // AssetsPointer in Tyrant
         uint64  colOffs <format=hex, name="MotionID offset">;
         uint64  motListNameOffs <format=hex>; //NamePointer
-        if (version != 60)
+        if (version > 60)
             uint64  motlistPathOffset;
+        if (version >= 991)
+            uint64  ukn;
         uint32  numOffs; FSeek(motListNameOffs); //AssetCount
         wstring motListName <open=suppress>;
         if (exists(motlistPathOffset) && motlistPathOffset > 0) {
@@ -2331,7 +2520,7 @@ else
         POINTERS Pointers[numOffs] <optimize=false>;
     } HEADER;
 
-    local uint motIndexSz <hidden=1> = (HEADER.version > 486) ? 72 : ((HEADER.version == 60) ? 12 : 24);
+    local uint motIndexSz <hidden=1> = (HEADER.version >= 486) ? 72 : ((HEADER.version == 60) ? 12 : 24);
     local int64 tmpArr[HEADER.numOffs] <format=hex, hidden=true>, \
                 isUnique[HEADER.numOffs] <format=hex, hidden=true>;
 

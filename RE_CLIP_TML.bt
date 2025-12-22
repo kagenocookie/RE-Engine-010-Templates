@@ -6,7 +6,7 @@
 //   Version: 1.0
 //   Purpose: Parsing RE Engine CLIP and TML files
 //  Category: RE Engine
-// File Mask: *.clip.*;*.tml.*
+// File Mask: *.clip.*;*.tml.*;*.ucurve.*
 //  ID Bytes: 43 4C 49 50
 //   History: July 20 2021
 //------------------------------------------------
@@ -34,6 +34,9 @@ if (version == 40 || version == 43) {
 if (version >= 53) { // 54 for sure, 53 _maybe_
     nodeSz = 80;
     propSz = 56;
+}
+if (version >= 85) { // mhwilds
+    keySz = 16;
 }
 
 int detectedFloat(uint64 offset) {
@@ -178,14 +181,22 @@ struct{
     uint version;
     float totalFrame;
     uint rootNodeNum;
-    uint trackNum;
+    uint trackGroupNum;
     if (version >= 40)
-        uint uknRE8Num;
-    uint childNodeNum;
+        uint sectionCount;
+    uint rootTrackNum;
     // uint clipInfoNum;
-    uint nodeNum;
+    if (version >= 85) {
+        uint rootTrackNum2;
+    }
+    uint totalTrackNum;
     uint propertyNum;
     uint keyNum;
+    if (version >= 85) {
+        uint boolKeyNum;
+        uint actionKeyNum;
+        uint noHermiteKeyNum;
+    }
     if (version < 40)
         uint ukn;
     if (version <= 27)
@@ -193,11 +204,19 @@ struct{
 	uint64 rootNodeTblPtr;
 	uint64 trackTblPtr;
     if (version >= 40)
-        uint64 uknRE8TblPtr;
+        uint64 sectionsOffset;
+    if (version >= 85) {
+        uint64 pragptr0;
+    }
     uint64 trackChildTblPtr;
 	uint64 nodeTblPtr;
 	uint64 propertyTblPtr;
 	uint64 keyTblPtr;
+    if (version >= 85) {
+        uint64 boolKeysOffset;
+        uint64 actionKeysOffset;
+        uint64 noHermiteKeysOffset;
+    }
 	uint64 speedPointTblPtr;
 	uint64 interpolationHermiteTblPtr;
     if (version != 54) // TODO probably wrong
@@ -226,39 +245,39 @@ typedef struct {
     StringRead typeStr(0);
     StringRead unicodeNameStr(1);
     StringRead nameStr(1);
-    uint64 nodeStartIdx;
     if (version >= 43) {
         uint64 uknOffset;
     }
+    uint64 nodeStartIdx;
 
 } Track;
 
 FSeek(header.trackTblPtr);
 struct {
-    Track track[header.trackNum] <optimize=false>;
+    Track track[header.trackGroupNum] <optimize=false>;
 }Tracks;
 
-if (exists(header.uknRE8TblPtr)) {
-    FSeek(header.uknRE8TblPtr);
-    //struct {
-        struct {
-            //int ukn[38] <optimize=false>;
-            int ukn;
-            float frameCount;
-            int ukn;
-            float frameCount2;
-            uint64 nameOffset;
-            // if (version != 43) {
-            //     uint64 rootNodeOffset[header.rootNodeNum];
-            // }
-        } uknRE8[header.uknRE8Num] <optimize=false>;
-    //} unknown;
+if (exists(header.sectionsOffset)) {
+    FSeek(header.sectionsOffset);
+    struct {
+        float startFrame;
+        float endFrame;
+        int ukn;
+        float frameCount;
+        if (version >= 91) {
+            uint64 uknIndex;
+        }
+        StringRead nameOffset(1);
+        if (version >= 91) {
+            uint64 null;
+        }
+    } SectionTags[header.sectionCount] <optimize=false, read=Str("%s [%f-%f]", nameOffset.String, startFrame, endFrame)>;
 }
 
-if (header.childNodeNum > 0)
+if (header.rootTrackNum > 0)
 {
     FSeek(header.trackChildTblPtr);
-    uint64 trackChildOffsets[header.childNodeNum];
+    uint64 trackChildOffsets[header.rootTrackNum];
 }
 
 typedef struct NODE {
@@ -271,16 +290,17 @@ typedef struct NODE {
         if (header.version <= 43) {
 	        rGUID exId;
         }
-        enum <int64> {
+        enum <int32> {
             NodeType_Unknown = 0x0,
             NodeType_GameObject = 0x1,
             NodeType_Component = 0x2,
             NodeType_Folder = 0x3,
         } NodeType : 8;
 
-	    unsigned __int64 uknByte1 : 8;
-	    unsigned __int64 uknByte2 : 8;
-	    unsigned __int64 padding : 40 <hidden=true>;
+	    unsigned int32 uknByte1 : 8;
+	    unsigned int32 uknByte2 : 8;
+	    unsigned int32 padding : 8 <hidden=true>;
+        uint pragHash;
 	    uint nameHash;
 	    uint unicodeNameHash;
 
@@ -316,9 +336,9 @@ typedef NODE Node <read=ReadNode, name=ReadNodeName, optimize=false>;
 FSeek(header.nodeTblPtr);
 
 if (!hideNodes)
-    struct { Node node[header.nodeNum]; } Nodes;
+    struct { Node node[header.totalTrackNum]; } Nodes;
 else
-    struct { Node node[header.nodeNum]; } Nodes <hidden=true>;
+    struct { Node node[header.totalTrackNum]; } Nodes <hidden=true>;
 
     string ReadNodeName(Node &n) { return n.NodeInfo.nameOffset.String; } //"Node " +
 
@@ -379,7 +399,8 @@ typedef struct PROPERTY {
             int ukn;
             float beginFrame;
             float endFrame;
-            uint64 alwaysTwo;
+            uint32 alwaysTwo;
+            uint32 speedPointNum;
             PropertyType propertyType : 8;
             uint16 isEnumClosed : 1;
             uint16 setAfterEndFrame : 1;
@@ -397,7 +418,7 @@ typedef struct PROPERTY {
             uint64 keyOffset;
             uint16 keyNum;
             int16 arrayIndex;
-            uint16 speedPointNum;
+            uint16 speedPointNumNOT;
             uint16 ukn2;
             uint64 lastKeyOffset;
             uint64 childStartIndex;
@@ -568,6 +589,21 @@ struct {
     Key key[header.keyNum] <optimize=false>;
 }Keys;
 
+if (exists(header.boolKeyNum)) {
+    if (header.boolKeyNum) {
+        FSeek(header.boolKeysOffset);
+        struct { float frame; ubyte type; ubyte ukn; uint16 data; } BoolKeys[header.boolKeyNum];
+    }
+    if (header.actionKeyNum) {
+        FSeek(header.actionKeysOffset);
+        struct { float frame; ubyte type; ubyte ukn; uint16 data; } ActionKeys[header.actionKeyNum];
+    }
+    if (header.noHermiteKeyNum) {
+        FSeek(header.noHermiteKeysOffset);
+        struct { float frame; ubyte type; ubyte ukn; uint16 data; } NoHermiteKeys[header.noHermiteKeyNum];
+    }
+}
+
 if (header.speedPointTblPtr != header.interpolationHermiteTblPtr) {
     FSeek(header.speedPointTblPtr);
     struct {
@@ -611,7 +647,7 @@ if (header.c8Ptr != header.clipInfoTblPtr) {
 FSeek(header.c8Ptr);
 struct {
     i=0;
-    while (i < header.propertyNum + header.nodeNum + header.trackNum + 1 && ReadUInt(FTell()) != 0) {
+    while (i < header.propertyNum + header.totalTrackNum + header.trackGroupNum + 1 && ReadUInt(FTell()) != 0) {
         struct cString String(0);
         i++;
     }
@@ -621,7 +657,7 @@ struct {
 FSeek(header.c16Ptr);
 struct {
     i=0;
-    while (FTell()+4 <= FileSize() && header.propertyNum + header.nodeNum + header.trackNum + 2 && ReadUInt(FTell()) != 0) {
+    while (FTell()+4 <= FileSize() && header.propertyNum + header.totalTrackNum + header.trackGroupNum + 2 && ReadUInt(FTell()) != 0) {
         struct cString WString(1);
         i++;
     }
@@ -637,7 +673,7 @@ if (header.owordPtr > 0 && header.owordPtr < FileSize() - 16) {
 SetForeColor(cGreen);
 FSeek(RootNodes.offset[0]);
 struct {
-    for (i=0; i<header.trackNum; i++) {
+    for (i=0; i<header.trackGroupNum; i++) {
         struct sortedTrack {
             local int idx <hidden=true> = i;
             for (j=Tracks.track[i].nodeStartIdx; j<Tracks.track[i].nodeStartIdx + Tracks.track[i].childNodeNum; j++) {

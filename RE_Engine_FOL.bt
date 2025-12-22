@@ -25,8 +25,27 @@ typedef struct AABB {
     float z2;
 };
 
-AABB bounds;
-FSkip(4); // is this anything or just alignment?
+if (version == 0) {
+    FSkip(4);
+    uint32 ukn;
+    FSkip(12);
+    struct {
+        uint64 meshOffset, meshOffset2;
+        uint64 matOffset, padding;
+        local uint64 pos = FTell();
+        FSeek(meshOffset);
+        wstring mesh;
+        FSeek(matOffset);
+        wstring material;
+        FSeek(pos);
+    } Groups[groupCount] <read=mesh, optimize=false>;
+
+    return;
+} else {
+    AABB bounds;
+    FSkip(4);
+}
+
 uint64 dataOffset;
 
 FSeek(dataOffset);
@@ -54,7 +73,7 @@ typedef struct {
 	vec3 pos;
     quaternion rot;
 	vec3 scale;
-} Transform <optimize=false>;
+} Transform <optimize=true>;
 
 struct FolGroup(int index) {
     FSeek(foliageGroups[index].transformsOffset);

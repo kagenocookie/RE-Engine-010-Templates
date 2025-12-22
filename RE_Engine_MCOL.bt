@@ -116,6 +116,9 @@ struct BVHHeader {
             uint32 uknCount2;
         }
 
+        if (version > 29000) {
+            uint64 uknPragmata;
+        }
         uint32 treeDataSize;
         uint64 treeDataOffset;
         uint64 verticesOffset;
@@ -127,7 +130,11 @@ struct BVHHeader {
             uint64 spheresOffset;
             uint64 capsulesOffset;
             uint64 boxesOffset;
+
             uint64 uknOffsetPadding;
+            if (version > 29000) {
+                uint64 uknOffsetPadding;
+            }
         }
     }
 } bvh;
