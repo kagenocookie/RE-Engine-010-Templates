@@ -1391,7 +1391,7 @@ typedef struct framedatatrns (uint32 keyCount, uint32 flags, uint64 frameDataOff
                         local float Val1 = (TranslationData & 0xFFFFF) * (1.0f / 0xFFFFF);
                         local float Val2 = ((TranslationData >> 20) & 0xFFFFFF) * (1.0f / 0xFFFFFF);
                         local float X = unpackData[0] * (((TranslationData >> 00) & 0xFFFFF) * (1.0f / 0xFFFFF)) + unpackData[2];
-                        local float X = unpackData[1] * (((TranslationData >> 20) & 0xFFFFF) * (1.0f / 0xFFFFF)) + unpackData[3];
+                        local float Y = unpackData[1] * (((TranslationData >> 20) & 0xFFFFF) * (1.0f / 0xFFFFF)) + unpackData[3];
                         local float Z = unpackData[4];
                         break;
                     case 0x56000:                       //LoadVector3sXZAxis20Bit
@@ -2508,7 +2508,7 @@ else
         uint64  motListNameOffs <format=hex>; //NamePointer
         if (version > 60)
             uint64  motlistPathOffset;
-        if (version >= 991)
+        if (version > 992)
             uint64  ukn;
         uint32  numOffs; FSeek(motListNameOffs); //AssetCount
         wstring motListName <open=suppress>;

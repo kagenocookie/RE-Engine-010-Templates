@@ -22,7 +22,7 @@ local int isWaypoint = !isWaypointManager && !isNavmesh && !isMap && !isVolumeSp
 
 local int format8 = (isMap && version == 8); // re7
 local int format28 = (isMap && version <= 28); // dmc5(28), re2(27)
-local int format41 = (isMap && version == 41 || isWaypoint && version == 3); // re2 rt, re8
+local int format41 = (isMap && version == 41 || isWaypoint && version == 3 || isNavmesh && version == 8); // re2 rt, re8
 local int format43 = (isWaypoint && version == 5 || isVolumeSpace && version == 6 || isMap && version == 43 || isNavmesh && version == 18); // re4
 // dd2, wilds - based on aimapattr version
 local int format46 = (isWaypoint && version > 6 || isWaypointManager && version >= 8 || isNavmesh && version >= 30);
@@ -101,35 +101,40 @@ struct ContentGroupBounds {
 
 typedef struct (int count){
     if (format == 8) {
-        uint32 values[count];
+        uint32 edgeAttributes[count];
     } else {
-        uint8 attributeIds[count];
+        ubyte edgeAttributes[count];
         align(4);
-        float values[count];
+        float traverseCosts[count];
     }
-} NodeInfoAttributes <read=ReadNodeInfoAttributes>;
+} EdgeInfo <read=ReadEdgeInfo>;
 
-string ReadNodeInfoAttributes(NodeInfoAttributes &a) {
-    if (exists(a.attributeIds)) {
-        return Str("%d=%f %d=%f %d=%f", a.attributeIds[0], a.values[0], a.attributeIds[1], a.values[1], a.attributeIds[2], a.values[2]);
+string ReadEdgeInfo(EdgeInfo &a) {
+    if (exists(a.traverseCosts)) {
+        return Str("%d=%f %d=%f %d=%f", a.edgeAttributes[0], a.traverseCosts[0], a.edgeAttributes[1], a.traverseCosts[1], a.edgeAttributes[2], a.traverseCosts[2]);
     } else {
-        return Str("%d %d %d", a.values[0], a.values[1], a.values[2]);
+        return Str("%d %d %d", a.edgeAttributes[0], a.edgeAttributes[1], a.edgeAttributes[2]);
     }
 }
 
 struct NodeData {
     uint32 nodeCount;
-    if (format >= 28) uint32 maxIndex;
-    if (format >= 41) uint32 minIndex;
+    if (format == 28) {
+        uint32 null;
+    }
+    if (format >= 41) {
+        uint32 maxIndex;
+        uint32 minIndex;
+    }
 
     typedef struct {
         uint32 index;
-        uint32 selfIndex, otherIndex;
+        uint32 sourceIndex, targetIndex;
 
-        uint32 ukn1;
+        uint32 targetEdgeIndex;
         LayerBitset attributes;
-        uint32 ukn2;
-    } LinkInfo <read=(Str("%d - %d    %d %d %s", selfIndex, otherIndex, ukn1, ukn2, ReadLayerBitset(attributes))), optimize=false>;
+        uint32 ukn;
+    } LinkInfo <read=(Str("%d - %d    %d %d %s", sourceIndex, targetIndex, targetEdgeIndex, ukn, ReadLayerBitset(attributes))), optimize=false>;
 
     if (format > 8) {
         struct {
@@ -152,8 +157,8 @@ struct NodeData {
                 struct {
                     triCount += NodeInfos[i].linkCount;
                     LinkInfo connections[NodeInfos[i].linkCount];
-                // } Links <read=Str("%d - %d", connections[0].selfIndex, connections[0].otherIndex)>;
-                } Links <read=Str("%d - %d %s", connections[0].selfIndex, connections[0].otherIndex, ReadLayerBitset(connections[0].attributes))>;
+                // } Links <read=Str("%d - %d", connections[0].sourceIndex, connections[0].targetIndex)>;
+                } Links <read=Str("%d - %d %s", connections[0].sourceIndex, connections[0].targetIndex, ReadLayerBitset(connections[0].attributes))>;
             }
         } LinkInfos;
 
@@ -171,12 +176,12 @@ struct NodeData {
     }
 };
 
-struct NodeTypeData {
-    uint32 typesCount1, typesCount2, typesCount3, typesCount4;
-    if (typesCount1 > 0) uint32 type1[typesCount1];
-    if (typesCount2 > 0) uint32 type2[typesCount2];
-    if (typesCount3 > 0) uint32 type3[typesCount3];
-    if (typesCount4 > 0) uint32 type4[typesCount4];
+struct NodeHeightPartitions {
+    uint32 count0, count1, count2, count3;
+    if (count0 > 0) uint32 height0[count0];
+    if (count1 > 0) uint32 height1[count1];
+    if (count2 > 0) uint32 height2[count2];
+    if (count3 > 0) uint32 height3[count3];
 };
 
 
@@ -196,17 +201,17 @@ struct ContentGroupMapPointHeader(uint32 count) {
 struct ContentGroupTrianglesHeader(uint32 count) {
     struct {
         uint32 a, b, c;
-        NodeInfoAttributes attrs(3);
-    } TriangleNode[count]  <optimize=false,read=(Str("%d %d %d   : %s", a, b, c, ReadNodeInfoAttributes(attrs)))>;
+        EdgeInfo edges(3);
+    } TriangleNode[count]  <optimize=false,read=(Str("%d %d %d   : %s", a, b, c, ReadEdgeInfo(edges)))>;
 };
 
 struct ContentGroupPolygonHeader(uint32 count) {
     struct PolygonNode {
         uint32 pointCount;
         uint32 nums[pointCount];
-        NodeInfoAttributes attrs(pointCount);
+        EdgeInfo edges(pointCount);
         vec3 min, max;
-    } Polygons[count] <optimize=false, read=Str("%d - %s", pointCount, ReadNodeInfoAttributes(attrs))>;
+    } Polygons[count] <optimize=false, read=Str("%d - %s", pointCount, ReadEdgeInfo(edges))>;
 };
 
 struct ContentGroupMapBoundaryHeader(uint32 count) {
@@ -317,7 +322,7 @@ struct ContentGroupContainer {
         // quantization factor?
         float float1, float2;
         AABB bounds;
-        NodeTypeData nodeTypes;
+        NodeHeightPartitions heightPartition;
     } else {
         float float1, float2;
     }
