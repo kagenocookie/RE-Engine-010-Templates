@@ -119,12 +119,8 @@ string ReadEdgeInfo(EdgeInfo &a) {
 
 struct NodeData {
     uint32 nodeCount;
-    if (format == 28) {
-        uint32 null;
-    }
     if (format >= 41) {
         uint32 maxIndex;
-        uint32 minIndex;
     }
 
     typedef struct {
@@ -138,29 +134,14 @@ struct NodeData {
 
     if (format > 8) {
         struct {
-            uint32 groupIndex;
             uint32 index;
+            uint32 groupIndex;
+            uint32 localIndex;
             uint32 flags;
             LayerBitset attributes;
             uint32 userdataIndex;
             uint32 linkCount;
-            uint32 nextIndex;
-        } NodeInfos[nodeCount] <read=(Str("%d:%d %d [%d]  %d   %s", groupIndex, index, flags, nextIndex, linkCount, ReadLayerBitset(attributes))), optimize=false>;
-
-        local int triCount = 0;
-        struct {
-            local int i = 0;
-            for (i = 0; i < nodeCount; i++) {
-                if (NodeInfos[i].linkCount == 0) {
-                    continue;
-                }
-                struct {
-                    triCount += NodeInfos[i].linkCount;
-                    LinkInfo connections[NodeInfos[i].linkCount];
-                // } Links <read=Str("%d - %d", connections[0].sourceIndex, connections[0].targetIndex)>;
-                } Links <read=Str("%d - %d %s", connections[0].sourceIndex, connections[0].targetIndex, ReadLayerBitset(connections[0].attributes))>;
-            }
-        } LinkInfos;
+        } NodeInfos[nodeCount] <read=(Str("%d (%d:%d) %d  %d   %s", index, groupIndex, localIndex, flags, linkCount, ReadLayerBitset(attributes))), optimize=false>;
 
     } else {
         struct {
@@ -170,10 +151,10 @@ struct NodeData {
             uint32 flags;
             LayerBitset attributes;
         } NodeInfos[nodeCount] <read=(Str("%d %d %s", index, flags, ReadLayerBitset(attributes))), optimize=false>;
-
-        uint connectionCount;
-        LinkInfo Links[connectionCount];
     }
+
+    uint connectionCount;
+    LinkInfo Links[connectionCount];
 };
 
 struct NodeHeightPartitions {
