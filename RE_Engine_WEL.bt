@@ -18,20 +18,18 @@ FSeek(512);
 uint32 count;
 
 struct {
+    uint32 eventId;
     uint32 hash;
-    uint32 hash2;
-    int32 ukn1;
+    uint32 ukn1;
     int32 ukn2;
-    ubyte ukn3;
-    ubyte ukn4;
-    ubyte ukn5;
-    ubyte ukn6;
-    int16 ukn7;
-    int16 ukn8;
-    uint8 data1[13];
-    uint8 one;
-    uint32 data2;
-    uint16 one;
-    uint16 data3[8];
-    uint16 zero;
-} Event[count] <read=one>;
+
+    int16 ukn3;
+    int16 ukn4;
+    int16 ukn5;
+    int16 ukn6;
+
+    ubyte ukn9;
+    int16 data1[11];
+    ubyte ukn9;
+    uint16 data3[7];
+} Event[count] <read=Str("%u / %u", eventId, hash)>;

@@ -5,7 +5,7 @@
 //   Version: 0.79
 //   Purpose: Parse RE Engine motlist files
 //  Category: RE Engine
-// File Mask: *.motlist.*
+// File Mask: *.motlist.*;*.mcamlist.*
 //  ID Bytes: [+4] 6D 6C 73 74
 //   History: July 2, 2023
 //------------------------------------------------
@@ -997,7 +997,7 @@ typedef struct FrameData (uint32 keyCount, uint32 flags, uint64 frameDataOffs) {
 
 typedef ulong LocFrameType_t<name="Translation Decompression", read=ReadLocFrameType, write=WriteLocFrameType>;
     string ReadLocFrameType(LocFrameType_t f){
-    if (MOT[0].MOT_HEADER.version == 65 || MOT[0].MOT_HEADER.version == 43) {
+    if (exists(MOT) ? (MOT[0].MOT_HEADER.version == 65 || MOT[0].MOT_HEADER.version == 43) : MCAM.Header.version <= 8) {
         switch (f & 0xFF000)
         {   //RE2 and RE7
             case 0x00000: string s = "LoadVector3sFull"; break;
@@ -1067,7 +1067,7 @@ typedef float VectorFull <read=VectorRead, write=VectorWrite>;
 
 typedef ulong RotFrameType_t<name="Rotation Decompression", read=ReadRotFrameType, write=WriteRotFrameType>;
     string ReadRotFrameType(RotFrameType_t f){
-    if (MOT[0].MOT_HEADER.version == 65 || MOT[0].MOT_HEADER.version == 43) {
+    if (exists(MOT) ? (MOT[0].MOT_HEADER.version == 65 || MOT[0].MOT_HEADER.version == 43) : MCAM.Header.version <= 8) {
         switch (f & 0xFF000)
         {   //RE2 and RE7
             case 0x00000: string s = "LoadQuaternionsFull"; break;
@@ -1144,7 +1144,7 @@ typedef struct track {
     uint32 keyCount;
 
     //if (MOT_HEADER.version == 78 || MOT_HEADER.version == 458 || MOT_HEADER.version == 456 || MOT_HEADER.version == 495) //40 bytes RE2, 20 bytes RE3
-    if (MOT_HEADER.version >= 78)
+    if (isMcamlist && MCAM.Header.version >= 9 || !isMcamlist && MOT_HEADER.version >= 78)
     {
         uint32 frameIndOffs <format=hex>;
         uint32 frameDataOffs <format=hex>;
@@ -1391,7 +1391,7 @@ typedef struct framedatatrns (uint32 keyCount, uint32 flags, uint64 frameDataOff
                         local float Val1 = (TranslationData & 0xFFFFF) * (1.0f / 0xFFFFF);
                         local float Val2 = ((TranslationData >> 20) & 0xFFFFFF) * (1.0f / 0xFFFFFF);
                         local float X = unpackData[0] * (((TranslationData >> 00) & 0xFFFFF) * (1.0f / 0xFFFFF)) + unpackData[2];
-                        local float Y = unpackData[1] * (((TranslationData >> 20) & 0xFFFFF) * (1.0f / 0xFFFFF)) + unpackData[3];
+                        local float X = unpackData[1] * (((TranslationData >> 20) & 0xFFFFF) * (1.0f / 0xFFFFF)) + unpackData[3];
                         local float Z = unpackData[4];
                         break;
                     case 0x56000:                       //LoadVector3sXZAxis20Bit
@@ -2370,11 +2370,11 @@ typedef struct {
 	}
 
 typedef struct  {
-    if (HEADER.version > 60) uint64 extraClipOffset;
+    if (motIndexSz > 12) uint64 extraClipOffset;
     ushort motNumber;
     ushort Switch <hidden=false>;
     if (motIndexSz > 0) {
-        if (HEADER.version >= 486) {
+        if (motIndexSz >= 72) {
             uint ukn1;
             uint ukn2;
             ubyte ukn;
@@ -2419,6 +2419,67 @@ typedef struct  {
         return s;
     }
 
+
+typedef struct {
+    start = FTell();
+    struct {
+        uint version;
+        uint magic <format=hex>;
+        uint64 null;
+        uint64 dataOffset;
+        uint64 dataOffset2;
+        uint64 offset3;
+        uint64 offset4;
+        // typedef struct(int64 atAddress, int64 addOffset, ubyte isAbsolute, ubyte isUTF8, ubyte isUint32)
+        struct StringRead Name(-1, start, 0, 0, 0);
+        uint16 uknExtraCount;
+        uint16 frameRate;
+        float frameCount;
+        float blending;
+        if (version >= 9) float uknFloat;
+    } Header;
+
+    FSeek(Header.dataOffset + start);
+
+    struct McamData {
+        uint16 uknNum;
+        ubyte trackFlags;
+        ubyte uknByte;
+        uint32 null;
+        if (Header.version == 4) {
+            uint64 trackDataOffset;
+        } else if (Header.version <= 7) {
+            float rateIdk;
+            uint32 null1;
+            uint64 trackDataOffset;
+            uint64 null2;
+        } else {
+            uint32 trackDataOffset;
+        }
+
+        local uint64 TranslationFlagOff <hidden=true> = FTell();
+        if (trackFlags & TRANSLATION) track trnsltn <name="Translation">;
+        local uint64 RotationFlagOff <hidden=true> = FTell();
+        if (trackFlags & ROTATION) track rotation <name="Rotation">;
+
+        if (trackFlags & TRANSLATION && trnsltn.flags >= 0){ FSeek(TranslationFlagOff); LocFrameType_t TranslationType;}
+        if (trackFlags & ROTATION && rotation.flags >= 0){ FSeek(RotationFlagOff); RotFrameType_t RotationType;}
+
+        if (trackFlags & TRANSLATION){
+            if (trnsltn.frameIndOffs > 0) FSeek(trnsltn.frameIndOffs+start);
+            else FSeek(trnsltn.frameDataOffs+start);
+            framedatatrns Frames(trnsltn.keyCount, trnsltn.flags, trnsltn.frameDataOffs+start, trnsltn.unpackDataOffs+start, trnsltn.frameIndOffs+start)<name="Frame Data: Translation">;
+        }
+        if (trackFlags & ROTATION){
+            if (rotation.frameIndOffs > 0) FSeek(rotation.frameIndOffs+start);
+            else FSeek(rotation.frameDataOffs+start);
+            framedatarot Frames(rotation.keyCount, rotation.flags, rotation.frameDataOffs+start, rotation.unpackDataOffs+start, rotation.frameIndOffs+start)<name="Frame Data: Rotation">;
+        }
+    } Data1;
+
+    FSeek(Header.dataOffset2 + start);
+    McamData Data2;
+} mcam;
 
 
 /* ---FUNCTIONS---- */
@@ -2496,19 +2557,21 @@ else if (NOCLIP == FALSE && ReadUInt(FTell()) == 1346980931)
 }
 else
 {
+    local int isMcamlist = 0;
     struct {
         uint32  Version;
         local uint version <hidden=false> = Version;
         if (version == 484 || version == 524 || version == 528 || version==653)
             version = 486;
         char    ID[4];
+        if (ID == "clst") isMcamlist = 1;
         uint64  padding;
         uint64  pointersOffs <format=hex>; // AssetsPointer in Tyrant
         uint64  colOffs <format=hex, name="MotionID offset">;
         uint64  motListNameOffs <format=hex>; //NamePointer
-        if (version > 60)
+        if (version > 60 || isMcamlist && Version >= 13)
             uint64  motlistPathOffset;
-        if (version > 992)
+        if (version >= 991 || isMcamlist && Version >= 24)
             uint64  ukn;
         uint32  numOffs; FSeek(motListNameOffs); //AssetCount
         wstring motListName <open=suppress>;
@@ -2520,7 +2583,9 @@ else
         POINTERS Pointers[numOffs] <optimize=false>;
     } HEADER;
 
-    local uint motIndexSz <hidden=1> = (HEADER.version >= 486) ? 72 : ((HEADER.version == 60) ? 12 : 24);
+    local uint motIndexSz =
+        !isMcamlist ?  ((HEADER.version >= 486) ? 72 : ((HEADER.version == 60) ? 12 : 24))
+        : (HEADER.version >= 19 ? 72 : HEADER.version == 7 ? 12 : 24);
     local int64 tmpArr[HEADER.numOffs] <format=hex, hidden=true>, \
                 isUnique[HEADER.numOffs] <format=hex, hidden=true>;
 
@@ -2562,11 +2627,9 @@ else
             mtre MTRE;
             SetForeColor(cNone);
         }
-        else if (motMagic == 0x74736C63)
+        else if (motMagic == 0x6D61636D)
         {
-            struct {
-                FSeek( i < numOffs-1 ? offs[i+1] : (HEADER.colOffs > 0 ? HEADER.colOffs : FileSize) );
-            } MCAM;
+            mcam MCAM;
         }
         else
         {
