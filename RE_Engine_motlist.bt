@@ -1865,7 +1865,7 @@ typedef struct
     unsigned int classNameHash;
     unsigned int nameHash;
     uint32 extraHash1;
-    if (version == 13) {
+    if (version == 13 || version == 14) {
         uint32 extraHash2;
     }
     ubyte tagCount;
@@ -1879,7 +1879,7 @@ typedef struct
     } nodeType;
 
     ubyte flags;
-    if (version == 13) {
+    if (version == 13 || version == 14) {
         uint32 padding;
     }
 
@@ -2090,7 +2090,7 @@ typedef struct {
             if (version < 13) {
                 uint16 srcId;
                 uint16 remappedId;
-            } else if (version == 13) {
+            } else if (version == 13 || version == 14) {
                 uint32 srcId;
                 uint16 remappedId;
             } else {
@@ -2571,7 +2571,7 @@ else
         uint64  motListNameOffs <format=hex>; //NamePointer
         if (version > 60 || isMcamlist && Version >= 13)
             uint64  motlistPathOffset;
-        if (version >= 991 || isMcamlist && Version >= 24)
+        if (version >= 1057 || isMcamlist && Version >= 24)
             uint64  ukn;
         uint32  numOffs; FSeek(motListNameOffs); //AssetCount
         wstring motListName <open=suppress>;
@@ -2612,13 +2612,21 @@ else
     }
 
     motCounter = 0;
-    local uint motMagic <hidden=true>;
+    local uint motver, motMagic <hidden=true>;
     for (i = 0; i < numOffs; i++)
     {
         FSeek(offs[i]);
+        motver = ReadUInt(FTell());
         motMagic = ReadUInt(FTell() + 4);
 
-        if (motMagic == 0x6572746D)
+        if (motver == 1)
+        {
+            struct {
+                uint version;
+                wstring motName;
+            } MotLink;
+        }
+        else if (motMagic == 0x6572746D)
         {
             //struct {
             //    FSeek( i < numOffs-1 ? offs[i+1] : (HEADER.colOffs > 0 ? HEADER.colOffs : FileSize) );
