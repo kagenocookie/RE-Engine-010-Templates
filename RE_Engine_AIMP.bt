@@ -146,8 +146,8 @@ struct NodeData {
     } else {
         struct {
             uint32 index;
-            uint32 zero;
-            uint32 index2;
+            uint32 groupIndex;
+            uint32 localIndex;
             uint32 flags;
             LayerBitset attributes;
         } NodeInfos[nodeCount] <read=(Str("%d %d %s", index, flags, ReadLayerBitset(attributes))), optimize=false>;
