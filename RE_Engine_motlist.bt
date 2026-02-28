@@ -1,12 +1,12 @@
 //--- 010 Editor v9.02 Binary Template
 //
 //      File: RE_Engine_motlist.bt
-//   Authors: alphaZomega, Che, Jackal
+//   Authors: alphaZomega, Che, Jackal, shadowcookie
 //   Version: 0.79
 //   Purpose: Parse RE Engine motlist files
 //  Category: RE Engine
-// File Mask: *.motlist.*;*.mcamlist.*
-//  ID Bytes: [+4] 6D 6C 73 74
+// File Mask: *.motlist.*;*.mcamlist.*;*.motpack.*
+//  ID Bytes: [+4] 6D 6C 73 74, [+4] 6D 70 63 6B
 //   History: July 2, 2023
 //------------------------------------------------
 LittleEndian();
@@ -62,8 +62,8 @@ uint findNextMot(uint start) {
     if (nextMotSt == -1)
         nextMotSt = FileSize();
     else nextMotSt -= 4;
-    if (nextMotSt > HEADER.colOffs && HEADER.colOffs > start)
-        nextMotSt = HEADER.colOffs;
+    // if (nextMotSt > HEADER.colOffs && HEADER.colOffs > start)
+    //     nextMotSt = HEADER.colOffs;
     return nextMotSt;
 }
 
@@ -1048,6 +1048,8 @@ typedef ulong LocFrameType_t<name="Translation Decompression", read=ReadLocFrame
             case 0x56000: string s = "LoadVector3sXZAxis20Bit"; break;
             case 0x57000: string s = "LoadVector3sZXAxis20Bit"; break;
             case 0x70000: string s = "LoadVector3s18Bit"; break;
+            case 0x76000: string s = "LoadVector3sYZAxis28Bit"; break;
+            case 0x77000: string s = "LoadVector3sYZAxis28Bit"; break;
             default: string s = "Unknown Type"; break;
         }
     }
@@ -1407,6 +1409,19 @@ typedef struct framedatatrns (uint32 keyCount, uint32 flags, uint64 frameDataOff
                         local float Z = unpackData[0] * (((TranslationData >> 00) & 0xFFFFF) * (1.0f / 0xFFFFF)) + unpackData[4];
                         break;
 
+                    case 0x76000:                       //LoadVector3sYZAxis28Bit
+                        uint64 TranslationData; FSkip(-1); if (SKIP_UNPACK) break;
+                        local float X = unpackData[0] * (((TranslationData >> 00) & 0xFFFFFFF) * (1.0f / 0xFFFFFFF)) + unpackData[2];
+                        local float Y = unpackData[1] * (((TranslationData >> 28) & 0xFFFFFFF) * (1.0f / 0xFFFFFFF)) + unpackData[3];
+                        local float Z = unpackData[4];
+                        break;
+                    case 0x77000:                       //LoadVector3sZXAxis28Bit
+                        uint64 TranslationData; FSkip(-1); if (SKIP_UNPACK) break;
+                        local float X = unpackData[1] * (((TranslationData >> 28) & 0xFFFFFFF) * (1.0f / 0xFFFFFFF)) + unpackData[2];
+                        local float Y = unpackData[3];
+                        local float Z = unpackData[0] * (((TranslationData >> 00) & 0xFFFFFFF) * (1.0f / 0xFFFFFFF)) + unpackData[4];
+                        break;
+
                     case 0x85000:                       //LoadVector3sUknPragmata1
                         float TranslationData[2]; if (SKIP_UNPACK) break;
                         local float X = TranslationData[0] + unpackData[0];
@@ -1421,15 +1436,9 @@ typedef struct framedatatrns (uint32 keyCount, uint32 flags, uint64 frameDataOff
                         break;
                     case 0x87000:                       //LoadVector3sUknPragmata3
                         float TranslationData[2]; if (SKIP_UNPACK) break;
-                        // local float X = unpackData[2] * (((TranslationData >> 00) & 0x1FFFFF) * (1.0f / 0x1FFFFF));
-                        // local float Num0_21 = (((TranslationData >> 00) & 0x1FFFFF) * (1.0f / 0x1FFFFF));
-                        // local float Num21_42 = (((TranslationData >> 21) & 0x1FFFFF) * (1.0f / 0x1FFFFF));
-                        // local float Num42_63 = (((TranslationData >> 42) & 0x1FFFFF) * (1.0f / 0x1FFFFF));
                         local float X = unpackData[0];
                         local float Y = TranslationData[0] + unpackData[1];
                         local float Z = TranslationData[1] + unpackData[2];
-                        // local float Y = unpackData[1] + (((TranslationData >> 21) & 0x1FFFFF) * (1.0f / 0x1FFFFF));
-                        // local float Z = unpackData[2] * (((TranslationData >> 42) & 0x1FFFFF) * (1.0f / 0x1FFFFF)) + unpackData[1];
                         break;
 
                     default:
@@ -2400,7 +2409,7 @@ typedef struct  {
             local int c = 0;
             for (c = 0; c < extraClipCount; c++) {
                 FSeek(extraClipOffsets[c]);
-                if (HEADER.version >= 1057) start = FTell();
+                if (HEADER.version >= 1047) start = FTell();
                 CLIP_ENTRY END_CLIP;
             }
         }
@@ -2481,6 +2490,27 @@ typedef struct {
     McamData Data2;
 } mcam;
 
+typedef struct {
+    struct {
+        uint version;
+        uint magic;
+        uint64 padding;
+        uint64 offsetsOffset;
+        uint64 indicesOffset;
+        uint motCount;
+        local int Version = version;
+    } HEADER;
+
+    FSeek(HEADER.offsetsOffset);
+    uint64 offsets[HEADER.motCount];
+    FSeek(HEADER.indicesOffset);
+    uint32 indices[HEADER.motCount];
+
+    for (i = 0; i < HEADER.motCount; i++) {
+        FSeek(offsets[i]);
+        mot MOT;
+    }
+} motpack;
 
 /* ---FUNCTIONS---- */
 int isInArr(int64 val, int64 arr[]){
@@ -2550,6 +2580,12 @@ if (bytes == "mot ") //single .mot files
         HEADER.Version = 751;
     mot MOT;
 }
+else if (bytes == "mpck") // motpack
+{
+    local int isMcamlist = 0;
+    local int isMotpack = 1;
+    motpack MOTPACK;
+}
 else if (NOCLIP == FALSE && ReadUInt(FTell()) == 1346980931)
 {
     struct { local int version = 99; } HEADER <hidden=true>;
@@ -2571,13 +2607,19 @@ else
         uint64  motListNameOffs <format=hex>; //NamePointer
         if (version > 60 || isMcamlist && Version >= 13)
             uint64  motlistPathOffset;
-        if (version >= 1057 || isMcamlist && Version >= 24)
-            uint64  ukn;
+        if (version >= 1047 || isMcamlist && Version >= 24)
+            uint64  motpackPathOffsetOffset;
         uint32  numOffs; FSeek(motListNameOffs); //AssetCount
         wstring motListName <open=suppress>;
         if (exists(motlistPathOffset) && motlistPathOffset > 0) {
             FSeek(motlistPathOffset);
             wstring motListPath <open=suppress>;
+        }
+        if (exists(motpackPathOffsetOffset) && motpackPathOffsetOffset > 0) {
+            FSeek(motpackPathOffsetOffset);
+            uint64 realMotpackPathOffset;
+            FSeek(realMotpackPathOffset);
+            wstring motpackPath;
         }
         FSeek(pointersOffs);
         POINTERS Pointers[numOffs] <optimize=false>;

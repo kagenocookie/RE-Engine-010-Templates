@@ -299,7 +299,7 @@ typedef struct NODE {
 
 	    unsigned int32 uknByte1 : 8;
 	    unsigned int32 uknByte2 : 8;
-	    unsigned int32 padding : 8 <hidden=true>;
+	    unsigned int32 uknByte3 : 8;
         uint pragHash;
 	    uint nameHash;
 	    uint unicodeNameHash;
@@ -592,15 +592,15 @@ struct {
 if (exists(header.boolKeyNum)) {
     if (header.boolKeyNum) {
         FSeek(header.boolKeysOffset);
-        struct { float frame; ubyte type; ubyte ukn; uint16 data; } BoolKeys[header.boolKeyNum];
+        struct { float frame; ubyte type; ubyte ukn; uint16 data; } BoolKeys[header.boolKeyNum] <read=frame>;
     }
     if (header.actionKeyNum) {
         FSeek(header.actionKeysOffset);
-        struct { float frame; ubyte type; ubyte ukn; uint16 data; } ActionKeys[header.actionKeyNum];
+        struct { float frame; ubyte type; ubyte ukn; uint16 data; } ActionKeys[header.actionKeyNum] <read=frame>;
     }
     if (header.noHermiteKeyNum) {
         FSeek(header.noHermiteKeysOffset);
-        struct { float frame; ubyte type; ubyte ukn; uint16 data; } NoHermiteKeys[header.noHermiteKeyNum];
+        struct { float frame; ubyte type; ubyte ukn; uint16 unknown; uint64 data; } NoHermiteKeys[header.noHermiteKeyNum] <read=frame>;
     }
 }
 
@@ -633,15 +633,16 @@ if (header.c8Ptr != header.clipInfoTblPtr) {
         float f2;
         uint a;
         uint b;
-        uint c;
-        float ukn;
-        uint ukn;
-        uint ukn;
+
+        // note: c + d 2 are sometimes a double, sometimes a long (see re8 c102e100_00_light.clip.40)
+        uint64 c;
+
+        uint64 d;
         if (version < 34) {
             uint ukn;
             uint ukn;
         }
-    } ClipInfo[(header.c8Ptr - header.clipInfoTblPtr) / (version < 34 ? 40 : 32)] <optimize=true>;
+    } ClipInfo[(header.c8Ptr - header.clipInfoTblPtr) / (version < 34 ? 40 : 32)] <optimize=true, read=f1>;
 }
 
 FSeek(header.c8Ptr);

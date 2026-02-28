@@ -53,12 +53,15 @@ typedef struct FoliageGroupInfo {
 	uint32 instanceCount;
 	AABB bounds;
 	uint32 ukn;
+    if (version > 3) {
+        uint64 uknOffset;
+    }
 	uint64 transformsOffset;
 	uint64 meshOffset;
 	uint64 matOffset;
 };
 
-FoliageGroupInfo foliageGroups[groupCount];
+FoliageGroupInfo foliageGroups[groupCount] <optimize=true>;
 
 typedef struct vec3 {
     float x, y, z;

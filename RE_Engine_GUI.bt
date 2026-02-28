@@ -316,7 +316,7 @@ typedef struct {
     }
 
 typedef struct {
-    if (HEADER.guiVersion < 910043) {
+    if (HEADER.guiVersion < 900043) {
         GUID guid;
     } else {
         uint64 hash;
@@ -334,7 +334,7 @@ typedef struct {
     if (HEADER.guiVersion >= 540034) uint64 reorderIndicesOffset;
     uint64 extraAttributesOffset;
     // if (HEADER.guiVersion == 430027 || HEADER.guiVersion >= 620035) uint64 nullOffset;
-    if (HEADER.guiVersion >= 430027) uint64 nullOffset;
+    if (HEADER.guiVersion >= 430027) uint64 uknOffset;
     uint64 elementDataOffset;
     if (HEADER.guiVersion >= 430027) uint64 uknNum;
 } SUBELEMENTINFO <read=ReadSUBELEMENTINFO>;
@@ -363,6 +363,18 @@ typedef struct {
             ATTRIBUTE Attribute[extraAttributeCount];
         } ExtraAttributes <open=true>;
     }
+    if (exists(SubElementInfo.uknOffset) && SubElementInfo.uknOffset) {
+        FSeek(SubElementInfo.uknOffset);
+        uint64 uknCount;
+        struct {
+            GuiNodeID StateId;
+            // uint64 asciiNameOffset;
+            // typedef struct(int64 atAddress, int64 addOffset, ubyte isAbsolute, ubyte isUTF8, ubyte isUint32)
+            struct StringRead AsciiName(-1, 0, 0, 1, 0);
+            uint64 offs3;
+            struct StringRead UnicodeName(-1, 0, 0, 0, 0);
+        } ExtraStateReference[uknCount] <optimize=true>;
+    }
     BLANK blank; FSkip(-1);
 } SUBELEMENT <name="Element", read=ReadSUBELEMENT>;
     string ReadSUBELEMENT (SUBELEMENT &input) { return input.SubElementInfo.Name.String; }
@@ -371,16 +383,16 @@ typedef struct {
     GuiNodeID Id;
     uint64 nameOffs, viaOffs, elementsOffset, clipsOffset;
 
-    if (HEADER.guiVersion >= 910043) {
+    if (HEADER.guiVersion >= 900043) {
         uint64 offsPrag1;
-        uint64 offsPrag2;
+        uint64 attributesOffset2;
     }
 
     pos = FTell();
     if (elementsOffset > 0) {
         FSeek(elementsOffset);
         uint64 subElementCount;
-        if (subElementCount && HEADER.guiVersion < 910043)
+        if (subElementCount && HEADER.guiVersion < 900043)
             uint64 offs[subElementCount];
     } else {
         local uint64 subElementCount = 0;
@@ -404,8 +416,8 @@ typedef struct {
             uint64 dataOffset;
         } ContainerExtraData1[count1] <optimize=false, read=ReadStringRead(Name)>;
     }
-    if (exists(offsPrag2) && offsPrag2 > 0) {
-        FSeek(offsPrag2);
+    if (exists(attributesOffset2) && attributesOffset2 > 0) {
+        FSeek(attributesOffset2);
         uint64 count2;
         struct {
             GuiNodeID id;
@@ -432,7 +444,7 @@ typedef struct {
 typedef struct {
     ELEMENTINFO ElementInfo;
 
-    if (HEADER.guiVersion < 910043) {
+    if (HEADER.guiVersion < 900043) {
         for (j=0; j<ElementInfo.subElementCount ; j++){
             FSeek(ElementInfo.offs[j]);
             SUBELEMENT SubElement;
@@ -1021,7 +1033,7 @@ typedef struct {
         float NumFrames;
         uint32 numNodes,numProperties;
         uint32  numKeys;
-        if (version >= 91) {
+        if (version >= 90) {
             uint32 boolKeyCount;
             uint32 uknKeyCount;
             uint32 uknKeyCount2;
@@ -1033,7 +1045,7 @@ typedef struct {
 
         uint64 clipDataOffs, propertiesOffs;
         uint64 keysOffs;
-        if (version >= 91) {
+        if (version >= 90) {
             uint64 boolKeysOffset;
             uint64 uknKeysOffset;
             uint64 uknKeysOffset2;
@@ -1204,14 +1216,14 @@ struct {
     uint64 offsetsStartOffset;
     if (guiVersion < 620035) uint64 uknOffset;
     uint64 resourceAttributesOffset;
-    if (guiVersion > 430000 && guiVersion < 910043) uint64 additionalDataOffset;
+    if (guiVersion > 430000 && guiVersion < 900043) uint64 additionalDataOffset;
     uint64 guiFilesOffset;
     uint64 resourcePathsOffset;
     FSeek(offsetsStartOffset);
     uint64 offsetsStart;
     uint64 viewOffset;
     uint64 numOffs;
-    if (guiVersion < 910043) uint64 offset[numOffs];
+    if (guiVersion < 900043) uint64 offset[numOffs];
     version = guiVersion;
 
 
@@ -1219,7 +1231,7 @@ struct {
         Version = 60;
     else if (version == 340020) //RE3
         Version = 99;
-    else if (version  >= 910043) //pragmata
+    else if (version  >= 900043) //pragmata
         Version = 993;
     else if (version  >= 400022) //RE8 and MHRise
         Version = 486;
@@ -1230,7 +1242,7 @@ struct {
     struct {
         uint64 count;
         struct {
-            if (HEADER.guiVersion < 910043) {
+            if (HEADER.guiVersion < 900043) {
                 struct StringRead Path(-1, 0, 0, 0, 0);
             } else {
                 uint64 pathHashesOffset;
@@ -1307,7 +1319,7 @@ struct {
     } Resources;
 } Paths;
 
-if (HEADER.guiVersion < 910043) {
+if (HEADER.guiVersion < 900043) {
     FSeek(HEADER.offset[0]);
     struct {
         for (i=0; i<HEADER.numOffs; i++){
