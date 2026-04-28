@@ -241,14 +241,14 @@ typedef struct {
     unsigned int32 reserved : 31 <hidden=true>;
     uint ukn;
     int clipNum;
-    int childNodeNum;
+    int trackNum;
     StringRead typeStr(0);
     StringRead unicodeNameStr(1);
     StringRead nameStr(1);
     if (version >= 43) {
-        uint64 uknOffset;
+        uint64 clipGroupStartIndex;
     }
-    uint64 nodeStartIdx;
+    uint64 trackStartIdx;
 
 } Track;
 
@@ -262,16 +262,16 @@ if (exists(header.sectionsOffset)) {
     struct {
         float startFrame;
         float endFrame;
-        int ukn;
+        int null;
         float frameCount;
-        if (version >= 91) {
-            uint64 uknIndex;
+        if (version >= 85) {
+            uint64 trackCount;
         }
         StringRead nameOffset(1);
-        if (version >= 91) {
-            uint64 null;
+        if (version >= 85) {
+            uint64 trackStartIndex;
         }
-    } SectionTags[header.sectionCount] <optimize=false, read=Str("%s [%f-%f]", nameOffset.String, startFrame, endFrame)>;
+    } ClipGroups[header.sectionCount] <optimize=false, read=Str("%s [%f-%f]", nameOffset.String, startFrame, endFrame)>;
 }
 
 if (header.rootTrackNum > 0)
@@ -383,7 +383,8 @@ typedef struct PROPERTY {
             uint32 keyNum; //guessing
             uint16 childMembershipCount;
             int16 ukn4;
-            int16 ukn5;
+            int8 interpolation;
+            int8 flags;
             PropertyType propertyType : 8;
             uint64 specialKeyOffset;
             if (version < 54) {
@@ -677,7 +678,7 @@ struct {
     for (i=0; i<header.trackGroupNum; i++) {
         struct sortedTrack {
             local int idx <hidden=true> = i;
-            for (j=Tracks.track[i].nodeStartIdx; j<Tracks.track[i].nodeStartIdx + Tracks.track[i].childNodeNum; j++) {
+            for (j=Tracks.track[i].trackStartIdx; j<Tracks.track[i].trackStartIdx + Tracks.track[i].trackNum; j++) {
                 FSeek(RootNodes.offset[j]);
                 struct Node RootNode;
             }
