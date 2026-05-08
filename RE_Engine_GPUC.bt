@@ -12,7 +12,7 @@
 //------------------------------------------------
 
 LittleEndian();
-local int i <hidden=true>, k <hidden=true>;
+local int i <hidden=true>, j <hidden=true>, k <hidden=true>;
 
 #include "common.bt";
 
@@ -79,13 +79,13 @@ struct {
 		uint numDeformWeights;
 		uint numUkn;
 		int numTotalRenderVertices;
-		uint null;
+		uint numUkn1;
 		uint numBatchSubRange;
 		uint null;
 		uint null;
 		int lodCount;
 		uint null;
-		uint numEdgeEdgeContactDescs;
+		uint numDeformBones;
 	} else if (fileVersion >= version_re4) {
 		uint numDeformWeights;
 		int numTotalRenderVertices;
@@ -129,7 +129,7 @@ struct {
 		if (fileVersion >= version_re9) {
 			uint64 nullTbl;
 			uint64 batchSubInfoTbl;
-			uint64 deformIndexTbl;
+			uint64 deformBonesTbl;
 		}
 		uint64 keyFrameTbl;
 	} else {
@@ -149,6 +149,9 @@ struct {
 		uint64 debugDistanceLinkTbl;
 		uint64 pointTriangleContactDescTbl;
 		uint64 edgeEdgeContactDescTbl;
+		if (fileVersion == version_re4) {
+			uint numVertexDeformInfos;
+		}
 	} else {
 		if (fileVersion >= version_re9) {
 			// note: some of these are probably existing stuff moved around for reasons beyond comprehension
@@ -159,9 +162,8 @@ struct {
 		if (fileVersion >= version_re9) {
 			uint64 offsUnused3;
 		}
-		uint64 offsUnused4;
+		uint64 edgeEdgeContactDescTbl;
 		uint64 deformInfoTbl;
-		// note: i'm really not sure on what kind of magic these blend infos work
 		uint64 blendInfoTbl;
 		if (fileVersion >= version_re9) {
 			uint64 blendMultiMatricesTbl;
@@ -236,6 +238,9 @@ typedef struct {
 		uint resourceCollisionCapsuleBits;
 		if (fileVersion >= version_dd2) {
 			uint resourceCollisionOBBBits;
+			if (fileVersion == version_dd2) {
+				uint64 padding;
+			}
 		}
 	} else {
 		uint padding;
@@ -334,6 +339,9 @@ typedef struct {
 	float backstopRadius;
 	if (fileVersion >= version_dd2) {
 		float backstopOffset;
+		if (fileVersion >= version_re9) {
+			vec2 uknFloats;
+		}
 		int deltaPositionOffset;
 		int numDeltaPositions;
 	} else {
@@ -344,9 +352,6 @@ typedef struct {
 	int partId;
 	int configId;
 	short controlPointIndices[4];
-	if (fileVersion >= version_re9) {
-		int minus1[2];
-	}
 	int initialDistances[4];
 	vec3 position;
 	NormalizedByte normal[4];
@@ -425,7 +430,7 @@ typedef struct {
 	uint primaryJointNameHash;
 	uint secondaryJointNameHash;
 	FSkip(8);
-} CollisionShape;
+} CollisionShape <read=(exists(primaryJointName) ? Str("%s - %s", primaryJointName, secondaryJointName) : Str("%u - %u", primaryJointNameHash, secondaryJointNameHash))>;
 
 typedef struct {
 	CollisionShape shape;
@@ -476,58 +481,55 @@ typedef struct {
 	uint configId;
 } MeshMeshDeformInfo;
 
+typedef struct Float3x4 {
+	vec4 m1, m2, m3;
+};
+
 typedef struct {
-	float transposeInverseBindMatrix[12]; // via.Float3x4
-} MeshJointDeformInfo;
+	uint vertexIndex;
+	uint configId;
+	BlendInfo blendInfos[16];
+} VertexDeformInfo <read=Str("%d: %d", vertexIndex, configId)>;
+
+typedef struct {
+	uint jointIndex;
+	struct {
+		int controlPointIndex;
+		float blendWeight;
+		Float3x4 matrix;
+	} BlendInfos[8] <read=Str("%d: %f", controlPointIndex, blendWeight)>;
+} MultiJointDeformRE4 <read=Str("%d", jointIndex)>;
 
 typedef struct {
 	struct {
 		uint controlPointIndex;
-		float weight;
-	} values[Header.numDeformWeights] <read=Str("%d: %f", controlPointIndex, weight)>;
+		float blendWeight;
+	} values[Header.numDeformWeights] <read=Str("%d: %f", controlPointIndex, blendWeight)>;
 } MeshMultiJointBlendInfo <optimize=true>;
 
 typedef struct {
-	MeshJointDeformInfo Matrices[Header.numDeformWeights];
+	Float3x4 Matrices[Header.numDeformWeights];
 } MeshMultiJointBlendMatrices;
 
 typedef struct {
-	uint values[Header.numDeformWeights * 2];
-} DeformBlendInfoPairs <optimize=true>;
+	struct {
+		// TODO not 100% sure about the struct yet but it seems kinda reasonable like this
+		short key1 : 15;
+		short key2 : 1;
+		ushort triangleIndex;
+		uint weight : 8;
+		uint ukn : 24;
+	} ValuePair[Header.numDeformWeights] <read=Str("%s%d %d => %f  / %d", key2 == 1 ? "- " : "+", key1, triangleIndex, weight/255.0f, ukn)>;
+} DeformBlendInfoPairs <optimize=true, read=ValuePair[0].key1>;
 
-typedef struct {
-	if (fileVersion == version_rert) {
-		MeshJointDeformInfo info;
-	} else if (fileVersion == version_dd2) {
-		uint configId;
-	} else if (fileVersion == version_re9) {
-		uint configId;
-		// MeshJointDeformInfo info[Header.numDeformWeights];
-		// MeshJointDeformInfo info;
-	} else if (fileVersion == version_pragmata) {
-		uint configId;
-	} else if (fileVersion == version_re8 || fileVersion == version_re4) {
-		uint vertexIndex;
-		uint configId;
-		BlendInfo blendInfos[16];
-	} else {
-		uint vertexIndex;
-		uint configId;
-		float ukn;
-	}
-} DeformInfo <read=ReadDeformInfo, optimize=true>;
-
-string ReadDeformInfo(DeformInfo &d) {
-	string s;
-	if (exists(d.vertexIndex)) {
-		SPrintf(s, "%u", d.vertexIndex);
-	} else if (exists(d.configId)) {
-		SPrintf(s, "%u", d.configId);
-	} else {
-		return "";
-	}
-	return s;
-}
+enum DeformType {
+	DeformType_Unknown = 0,
+	DeformType_PerControlPoint = 1,
+	DeformType_PerTriangle = 2,
+	DeformType_MultiJoint = 3,
+	DeformType_PerVertex = 4,
+	DeformType_MultiJoint_LinearLayout = 5,
+};
 
 FSeek(Header.batchInfoTbl);
 if (Header.numBatchInfos)
@@ -568,9 +570,9 @@ if (exists(Header.batchSubInfoTbl)) {
 	} BatchSubInfos[Header.numBatchSubInfos];
 }
 
-if (exists(Header.deformIndexTbl)) {
-	FSeek(Header.deformIndexTbl);
-	uint DeformIndex[Header.numEdgeEdgeContactDescs];
+if (exists(Header.deformBonesTbl)) {
+	FSeek(Header.deformBonesTbl);
+	uint DeformBoneIndices[Header.numDeformBones];
 }
 
 if (exists(Header.batchSubRangeTbl)) {
@@ -592,10 +594,10 @@ if (exists(Header.batchSubRangeTbl)) {
 		uint null3End;
 		uint deformInfoStart;
 		uint deformInfoEnd;
-		uint ukn1Start;
-		uint ukn1End;
-		uint collisionEdgeGroupStartMaybe;
-		uint collisionEdgeGroupEndMaybe;
+		uint null4Start;
+		uint null4End;
+		uint batchStart;
+		uint batchEnd;
 	} BatchSubRanges[Header.numBatchSubRange];
 }
 
@@ -626,11 +628,21 @@ FSeek(Header.numDistanceLinksInGroupTbl);
 if (Header.numDistanceLinkGroups)
 	uint DistanceLinkGroupCounts[Header.numDistanceLinkGroups] <optimize=true>;
 
-if (exists(Header.numCollisionEdgesInGroupTbl)) {
-	FSeek(Header.numCollisionEdgesInGroupTbl);
-	if (Header.numCollisionEdgeGroups)
-		uint CollisionEdgeGroupCounts[Header.numCollisionEdgeGroups] <optimize=true>;
-}
+FSeek(Header.numCollisionEdgesInGroupTbl);
+if (Header.numCollisionEdgeGroups)
+	uint CollisionEdgeGroupCounts[Header.numCollisionEdgeGroups] <optimize=true>;
+
+FSeek(Header.collisionPlaneTbl);
+if (Header.numCollisionPlanes)
+	struct {
+		CollisionPlane CollisionPlanes[Header.numCollisionPlanes];
+	} CollisionPlanes;
+
+FSeek(Header.collisionSphereTbl);
+if (Header.numCollisionSpheres)
+	struct {
+		CollisionSphere CollisionSpheres[Header.numCollisionSpheres];
+	} CollisionSpheres;
 
 FSeek(Header.collisionCapsuleTbl);
 if (Header.numCollisionCapsules)
@@ -638,35 +650,113 @@ if (Header.numCollisionCapsules)
 		CollisionCapsule CollisionCapsules[Header.numCollisionCapsules];
 	} CollisionCapsules;
 
+if (exists(Header.collisionOBBTbl)) {
+	FSeek(Header.collisionOBBTbl);
+	if (Header.numCollisionOBBs)
+		struct {
+			CollisionOBB CollisionOBBs[Header.numCollisionOBBs];
+		} CollisionOBBs;
+}
+
 FSeek(Header.pointTriangleContactDescTbl);
 if (Header.numPointTriangleContactDescs && FTell() + Header.numPointTriangleContactDescs*4 <= FileSize())
 	PointTriangleContactDesc PointTriangleContactDescs[Header.numPointTriangleContactDescs] <optimize=true>;
 else if (exists(Header.numPointTriangleContactDescs2) && Header.numPointTriangleContactDescs2 && FTell() + Header.numPointTriangleContactDescs2*4 <= FileSize())
 	PointTriangleContactDesc PointTriangleContactDescs[Header.numPointTriangleContactDescs2] <optimize=true>;
 
-FSeek(Header.deformInfoTbl);
-if (Header.deformInfoTbl && Header.numDeformInfos)
-	DeformInfo DeformInfos[Header.numDeformInfos] <optimize=true>;
 
-if (exists(Header.blendInfoTbl)) {
-	// TODO find a better way to determine which type of blend info a file uses
-	FSeek(Header.blendInfoTbl);
-	if (fileVersion == version_pragmata) {
-		DeformBlendInfoPairs BlendInfoPairs[Header.numDeformInfos];
-	} else if (exists(Header.blendMultiMatricesTbl)) { // re9
-		MeshMultiJointBlendInfo MultiJointBlendInfos[Header.numDeformInfos];
-
-		if (fileVersion == version_re9) {
-			FSeek(Header.blendMultiMatricesTbl);
-			MeshMultiJointBlendMatrices MultiJointBlendMatrices[Header.numDeformInfos] <optimize=true>;
-
-			FSeek(Header.blendControlPointMatricesTbl);
-			MeshJointDeformInfo BlendControlPointMatrices[Header.numControlPoints] <optimize=true>;
-		}
+local DeformType deformType <hidden=false> = DeformType_Unknown;
+if (fileVersion >= version_dd2) {
+	if (Header.vertexIdToDeformInfoIndexTbl < Header.debugControlPointTbl) {
+		deformType = DeformType_PerTriangle;
 	} else {
-		DeformBlendInfoPairs BlendInfoPairs[Header.numDeformInfos];
+		deformType = DeformType_MultiJoint;
 	}
+} else if (fileVersion == version_re4) {
+	if (Header.numVertexDeformInfos > 0) {
+		deformType = DeformType_PerVertex;
+	} else {
+		deformType = DeformType_MultiJoint_LinearLayout;
+	}
+} else if (Header.numControlPoints == Header.numDeformInfos) {
+	deformType = DeformType_PerControlPoint;
+} else {
+	deformType = DeformType_PerVertex;
 }
+
+
+FSeek(Header.deformInfoTbl);
+if (deformType == DeformType_PerControlPoint) {
+	Float3x4 DeformMatrices[Header.numDeformInfos];
+} else if (deformType == DeformType_PerTriangle) {
+	uint BlendConfigIDs[Header.numDeformInfos];
+
+	FSeek(Header.blendInfoTbl);
+	DeformBlendInfoPairs BlendInfoPairs[Header.numDeformInfos];
+} else if (deformType == DeformType_MultiJoint) {
+	uint deformJointIndices[Header.numDeformInfos];
+
+	FSeek(Header.blendInfoTbl);
+	MeshMultiJointBlendInfo MultiJointBlendInfos[Header.numDeformInfos];
+
+	FSeek(Header.blendMultiMatricesTbl);
+	MeshMultiJointBlendMatrices MultiJointBlendMatrices[Header.numDeformInfos] <optimize=true>;
+
+	FSeek(Header.blendControlPointMatricesTbl);
+	Float3x4 BlendControlPointMatrices[Header.numControlPoints] <optimize=true>;
+} else if (deformType == DeformType_PerVertex) {
+	VertexDeformInfo VertexDeformInfos[Header.numDeformInfos] <optimize=true>;
+} else if (deformType == DeformType_MultiJoint_LinearLayout) {
+	MultiJointDeformRE4 VertexDeformInfos[Header.numDeformInfos] <optimize=true>;
+}
+
+typedef struct DeformInfo_t(int index) {
+	if (deformType == DeformType_PerControlPoint) {
+		uint configId;
+		FSeek(startof(DeformMatrices[index]));
+		Float3x4 matrix;
+		FSeek(startof(configId) + 4);
+	} else if (deformType == DeformType_PerTriangle) {
+		uint configId;
+		FSeek(startof(BlendInfoPairs[index]));
+		DeformBlendInfoPairs blendInfo;
+		FSeek(startof(configId) + 4);
+	} else if (deformType == DeformType_MultiJoint) {
+		uint jointIndex;
+		FSeek(startof(MultiJointBlendInfos[index]));
+		MeshMultiJointBlendInfo jointBlendInfo;
+		FSeek(startof(MultiJointBlendMatrices[index]));
+		MeshMultiJointBlendMatrices jointMatrices;
+		FSeek(startof(jointIndex) + 4);
+	} else if (deformType == DeformType_PerVertex) {
+		VertexDeformInfo deformInfo;
+	} else if (deformType == DeformType_MultiJoint_LinearLayout) {
+		MultiJointDeformRE4 deformInfo;
+	}
+} DeformInfo <read=ReadDeformInfo>;
+
+string ReadDeformInfo(DeformInfo &d) {
+	string s;
+	if (exists(d.configId)) {
+		SPrintf(s, "Config = %u", d.configId);
+	} else if (exists(d.jointIndex)) {
+		SPrintf(s, "Joint = %u", d.jointIndex);
+	} else {
+		return "";
+	}
+	return s;
+}
+
+FSeek(Header.deformInfoTbl);
+struct {
+	if (deformType == DeformType_PerVertex) {
+		VertexDeformInfo deformInfo[Header.numDeformInfos];
+	} else {
+		for (k = 0; k < Header.numDeformInfos; k++) {
+			DeformInfo deformInfo(k);
+		}
+	}
+} DeformData;
 
 if (exists(Header.vertexIdToDeformInfoIndexTbl) && Header.numTotalRenderVertices) {
 	FSeek(Header.vertexIdToDeformInfoIndexTbl);
@@ -690,17 +780,19 @@ if (Header.numDistanceLinks)
 
 for (i=0; i<Header.numBatchInfos;i++) {
 	FSeek(startof(ControlPoints[BatchInfos.BatchInfos[i].controlPointOffset]));
-	// FSeek(Header.controlPointTbl + BatchInfos.BatchInfos[i].controlPointOffset * 96);
 	struct {
 		if (BatchInfos.BatchInfos[i].numControlPoints) {
-			// FSeek(Header.controlPointTbl);
 			FSeek(startof(ControlPoints[BatchInfos.BatchInfos[i].controlPointOffset]));
 			ControlPoint ControlPoints[BatchInfos.BatchInfos[i].numControlPoints] <optimize=true>;
 		}
 
 		if (BatchInfos.BatchInfos[i].numDeformInfos) {
-			FSeek(startof(DeformInfos[BatchInfos.BatchInfos[i].deformInfoOffset]));
-			DeformInfo DeformInfos[BatchInfos.BatchInfos[i].numDeformInfos] <optimize=true>;
+			struct {
+				for (j = 0; j < BatchInfos.BatchInfos[i].numDeformInfos; j++) {
+					FSeek(startof(DeformData.deformInfo[BatchInfos.BatchInfos[i].deformInfoOffset + j]));
+					DeformInfo deformInfo(BatchInfos.BatchInfos[i].deformInfoOffset + j);
+				}
+			} DeformInfos;
 		}
 
 		FSeek(Header.distanceLinkTbl + BatchInfos.BatchInfos[i].distanceLinkOffset * 16);
@@ -725,11 +817,9 @@ for (i=0; i<Header.numBatchInfos;i++) {
 		if (BatchInfos.BatchInfos[i].numDistanceLinkGroups)
 			uint DistanceLinkGroupCounts[BatchInfos.BatchInfos[i].numDistanceLinkGroups] <optimize=true>;
 
-		if (exists(Header.numCollisionEdgesInGroupTbl)) {
-			FSeek(Header.numCollisionEdgesInGroupTbl + BatchInfos.BatchInfos[i].collisionEdgeGroupOffset * 4);
-			if (BatchInfos.BatchInfos[i].numCollisionEdgeGroups)
-				uint CollisionEdgeGroupCounts[BatchInfos.BatchInfos[i].numCollisionEdgeGroups] <optimize=true>;
-		}
+		FSeek(Header.numCollisionEdgesInGroupTbl + BatchInfos.BatchInfos[i].collisionEdgeGroupOffset * 4);
+		if (BatchInfos.BatchInfos[i].numCollisionEdgeGroups)
+			uint CollisionEdgeGroupCounts[BatchInfos.BatchInfos[i].numCollisionEdgeGroups] <optimize=true>;
 
 		FSeek(Header.pointTriangleContactDescTbl + BatchInfos.BatchInfos[i].pointTriangleContactDescOffset * 4);
 		if (BatchInfos.BatchInfos[i].numPointTriangleContactDescs)
