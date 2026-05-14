@@ -36,20 +36,22 @@ struct {
         ushort extraJointsCount;
         FSkip(2);
     } else {
+        if (version >= 28) uint64 uknOffset;
         uint64 ikMotionDataPtr;
         uint64 symmetryMirrorDataPtr;
-        if (version >= 19)
-            uint64 extraHashesPtr;
         if (version >= 28) {
+            uint64 SymmetryMirrorData2Ptr;
             uint64 uknPtr;
             uint64 uknPtr;
             uint64 uknPtr;
             uint64 uknPtr;
-            uint64 uknPtr;
-            uint64 uknPtr;
+            // uint64 uknPtr;
         }
+        if (version >= 19)
+            uint64 skeletonMaskPtr;
         uint32 AttributeFlags;
         uint16 jointMaskGroupCount;
+        uint8 ikMotionCount;
     }
 } Header;
 
@@ -226,16 +228,16 @@ if (Header.extraJointDataPtr) {
     } extraJoints;
 }
 
-if (exists(Header.ikMotionDataPtr)) {
+if (exists(Header.ikMotionDataPtr) && Header.ikMotionDataPtr && Header.ikMotionCount > 0) {
     FSeek(Header.ikMotionDataPtr);
-    if (Header.ikMotionDataPtr && Header.ikMotionDataPtr < FileSize()) {
+    struct {
         uint32 ikJointNameHash;
         uint32 fkJointNameHash;
         byte ikType;
         char descendantLevelFromIkHandle;
         byte ikDirection;
         byte ikUpvector;
-    }
+    } IKMotionData[Header.ikMotionCount];
 }
 
 if (exists(Header.symmetryMirrorDataPtr)) {
@@ -245,6 +247,10 @@ if (exists(Header.symmetryMirrorDataPtr)) {
             uint64 mirrorJointHashTbl;
             uint64 mirrorTbl;
             int mirrorTblCount;
+            ubyte attributes;
+            ubyte attributes;
+            ubyte attributes;
+            ubyte attributes;
 
             FSeek(mirrorJointHashTbl);
             if (mirrorJointHashTbl) {
@@ -255,18 +261,27 @@ if (exists(Header.symmetryMirrorDataPtr)) {
             if (mirrorTbl) {
                 struct {
                     ubyte one, two;
-                } Pairs[mirrorTblCount] <read=Str("%d %d", one, two)>;
+                    if (Header.version >= 28) {
+                        ubyte attributes;
+                    }
+                } Pairs[mirrorTblCount] <read=Str("%d %d", one, two), optimize=true>;
             }
         } SymmetryMirrorData;
     }
 }
-if (exists(Header.extraHashesPtr) && Header.extraHashesPtr) {
-    FSeek(Header.extraHashesPtr);
+
+if (exists(Header.skeletonMaskPtr) && Header.skeletonMaskPtr && Header.skeletonMaskPtr != Header.symmetryMirrorDataPtr) {
+    FSeek(Header.skeletonMaskPtr);
     struct {
         uint64 dataOffset;
         uint32 count;
         uint32 hashes[count];
-    } extraHashData;
+    } SkeletonMaskData;
+}
+
+if (exists(Header.SymmetryMirrorData2Ptr) && Header.SymmetryMirrorData2Ptr) {
+    FSeek(Header.SymmetryMirrorData2Ptr);
+    symmetryMirrorData SymmetryMirrorData2;
 }
 
 wstring ReadExtraJoint(extraJoint &e) {

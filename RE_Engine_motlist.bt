@@ -5,8 +5,8 @@
 //   Version: 0.79
 //   Purpose: Parse RE Engine motlist files
 //  Category: RE Engine
-// File Mask: *.motlist.*;*.mcamlist.*;*.motpack.*
-//  ID Bytes: [+4] 6D 6C 73 74, [+4] 6D 70 63 6B
+// File Mask: *.motlist.*;*.mcamlist.*;*.motpack.*;*.mot.*
+//  ID Bytes: [+4] 6D 6C 73 74, [+4] 6D 70 63 6B, [+4] 6D 6F 74 20
 //   History: July 2, 2023
 //------------------------------------------------
 LittleEndian();
@@ -1669,6 +1669,14 @@ typedef struct framedatafloat (uint32 keyCount, uint32 flags, uint64 frameDataOf
                         float Value;
                         break;
 
+                    case 0x10000:                       //LoadFloats8Bit
+                        ubyte Value;
+                        break;
+
+                    case 0x20000:                       //LoadFloats16Bit
+                        uint16 Value;
+                        break;
+
                     default:
                         float Value;
                         Printf("Unknown Float compression Type: %x at FTell %d\n", (flags & 0xFF000), FTell());
@@ -2198,31 +2206,80 @@ typedef struct {
         } else Printf("Empty mot at %u\n", FTell());
         if ( MOT_HEADER.jmapOffset > 0) {
             FSeek(MOT_HEADER.jmapOffset + start);
-            if (MOT_HEADER.version==603 && findS(Lower(GetFileName()), "fac") != -1) {
+            if (MOT_HEADER.uknShort == 1)  {
                 struct {
-                    uint64 offs;
-                    uint tableACount; // bone count
-                    uint tableBCount; //frame count + 1
-                    FSeek(offs + start);
-                    struct {
+                    // structure verified OK: dmc5 (mot.65), rest unknown
+                    uint64 framesOffset;
+                    uint64 frames2Offset;
+                    uint64 boneInfoOffset;
+                    uint64 boneInfo2Offset;
+                    uint64 nullOffset;
+                    uint64 boneHashesOffset;
+                    uint boneCount;
+                    uint frameCount;
+                    uint fps;
+                    uint null;
+                    ubyte flag1;
+                    ubyte flag2;
+                    if (MOT_HEADER.version == 65) { // dmc5
+                        FSeek(boneHashesOffset + start);
+                        uint hashes[boneCount];
+
+                        FSeek(framesOffset + start);
                         struct {
-                            uint64 offs;
-                            FSeek(offs+start);
-                            uint64 offset  <fgcolor=cAqua>;
-                            uint boneHash;
-                            FSkip(4);
                             struct {
+                                uint16 x;
+                                uint16 y;
+                                uint16 z;
+                            } Deforms[boneCount] <optimize=true>;
+                        } Frames[frameCount] <optimize=true>;
+
+                        FSeek(boneInfoOffset + start);
+                        struct {
+                            uint32 a0;
+                            uint32 b0;
+                            uint32 c0;
+                            // uint16 a, b, c, d, e, f;
+                            // uint16 c, d, e, f;
+                            uint g, h, m;
+                        } BoneInfo[boneCount] <read=c0>;
+
+                        FSeek(frames2Offset + start);
+                        struct {
+                            struct {
+                                uint16 x;
+                                uint16 y;
+                                uint16 z;
+                            } Deforms[boneCount] <optimize=true>;
+                        } Frames2[frameCount] <optimize=true>;
+
+                        FSeek(boneInfo2Offset + start);
+                        struct {
+                            uint a, b, c, d, e, f;
+                        } BoneInfo2[boneCount];
+
+                    } else {
+                        FSeek(framesOffset + start);
+                        struct {
+                            struct {
+                                uint64 offs;
+                                FSeek(offs+start);
+                                uint64 offset  <fgcolor=cAqua>;
+                                uint boneHash;
+                                FSkip(4);
                                 struct {
-                                    uint64 offset;
-                                    FSeek(offset+start);
-                                    uint layerID, b, c;
-                                    float blendValue <fgcolor=cRed>;
-                                    FSeek(startof(this)+8);
-                                } frame[tableBCount] <optimize=false, fgcolor=cGreen >;
-                            } frames;
-                            FSeek(startof(this)+8);
-                        } bone[tableACount] <optimize=false>;
-                    } boneFrames;
+                                    struct {
+                                        uint64 offset;
+                                        FSeek(offset+start);
+                                        uint layerID, b, c;
+                                        float blendValue <fgcolor=cRed>;
+                                        FSeek(startof(this)+8);
+                                    } frame[tableBCount] <optimize=false, fgcolor=cGreen >;
+                                } frames;
+                                FSeek(startof(this)+8);
+                            } bone[boneCount] <optimize=false>;
+                        } boneFrames;
+                    }
                 } boneFrames;
             } else
                 wstring JMAP;
@@ -2558,6 +2615,7 @@ void FixOffsets(uint64 tell, uint64 tellLimit, uint64 insertPoint, int64 maxOffs
 ReadBytes(bytes, 4, 4);
 if (bytes == "mot ") //single .mot files
 {
+    local int isMcamlist = 0;
     bIsMotFile = 1;
     struct {
         ubyte blank;

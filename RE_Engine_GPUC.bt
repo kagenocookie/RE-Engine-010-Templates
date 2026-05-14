@@ -22,6 +22,7 @@ local int version_re8 <hidden=true> = 62;
 local int version_rert <hidden=true> = 65;
 local int version_re4 <hidden=true> = 221108868;
 local int version_dd2 <hidden=true> = 231011972;
+local int version_mhst3 <hidden=true> = 250604242;
 local int version_re9 <hidden=true> = 250925365;
 local int version_pragmata <hidden=true> = 251121978;
 
@@ -59,23 +60,24 @@ struct {
 	else if (fileVersion >= version_dd2) { // dd2
 		uint meshResourcePathHash;
 		uint cpuMemorySize;
-		uint64 padding;
+		if (fileVersion != version_mhst3)
+			uint64 padding;
 	}
 	uint numControlPoints;
 	uint numTriangles;
 	uint numDistanceLinks;
 	uint numCollisionEdges;
-	if (fileVersion < version_re9)
+	if (fileVersion < version_mhst3)
 		uint numTriangleGroups;
 	uint numDistanceLinkGroups;
 	uint numCollisionEdgeGroups;
 	uint numPartInfos;
 	uint numBatchInfos;
-	if (fileVersion >= version_re9)
+	if (fileVersion >= version_mhst3)
 		uint numBatchSubInfos;
 	uint numConfigInfos;
 	uint numDeformInfos;
-	if (fileVersion >= version_re9) {
+	if (fileVersion >= version_mhst3) {
 		uint numDeformWeights;
 		uint numUkn;
 		int numTotalRenderVertices;
@@ -84,8 +86,8 @@ struct {
 		uint null;
 		uint null;
 		int lodCount;
-		uint null;
 		uint numDeformBones;
+		uint null;
 	} else if (fileVersion >= version_re4) {
 		uint numDeformWeights;
 		int numTotalRenderVertices;
@@ -103,11 +105,11 @@ struct {
 	ushort numNativeJoints;
 	ushort maxJointCount;
 	uint maxBatchControlPoints;
-	uint maxDeformWeightCount;
-	uint numPointTriangleContactDescs;
-	if (fileVersion < version_re9) { // re9
-		uint numEdgeEdgeContactDescs;
+	if (fileVersion < version_mhst3) {
+		uint maxDeformWeightCount;
 	}
+	uint numPointTriangleContactDescs;
+	uint numEdgeEdgeContactDescs;
 	uint status; // probably
 	align(16);
 	AABB domain;
@@ -117,7 +119,7 @@ struct {
 	uint64 distanceLinkTbl;
 	uint64 collisionEdgeTbl;
 
-	if (fileVersion < version_re9)
+	if (fileVersion < version_mhst3)
 		uint64 numTrianglesInGroupTbl;
 	uint64 numDistanceLinksInGroupTbl;
 	uint64 numCollisionEdgesInGroupTbl;
@@ -126,7 +128,7 @@ struct {
 	uint64 batchInfoTbl;
 	uint64 configInfoTbl;
 	if (fileVersion >= version_dd2) {
-		if (fileVersion >= version_re9) {
+		if (fileVersion >= version_mhst3) {
 			uint64 nullTbl;
 			uint64 batchSubInfoTbl;
 			uint64 deformBonesTbl;
@@ -135,7 +137,7 @@ struct {
 	} else {
 		uint64 deformInfoTbl;
 	}
-	if (fileVersion >= version_re9) {
+	if (fileVersion >= version_mhst3) {
 		uint64 batchSubRangeTbl;
 	}
 	uint64 collisionPlaneTbl;
@@ -153,19 +155,19 @@ struct {
 			uint numVertexDeformInfos;
 		}
 	} else {
-		if (fileVersion >= version_re9) {
+		uint64 pointTriangleContactDescTbl;
+		if (fileVersion >= version_mhst3) {
 			// note: some of these are probably existing stuff moved around for reasons beyond comprehension
 			uint64 offsUnused1;
 			uint64 offsUnused2;
 		}
-		uint64 pointTriangleContactDescTbl;
-		if (fileVersion >= version_re9) {
-			uint64 offsUnused3;
-		}
 		uint64 edgeEdgeContactDescTbl;
+		if (fileVersion >= version_re9) {
+			uint64 offsUnused3; // TODO verify
+		}
 		uint64 deformInfoTbl;
 		uint64 blendInfoTbl;
-		if (fileVersion >= version_re9) {
+		if (fileVersion >= version_mhst3) {
 			uint64 blendMultiMatricesTbl;
 			uint64 blendControlPointMatricesTbl;
 		}
@@ -180,7 +182,7 @@ typedef struct {
 	uint numTriangles;
 	uint numDistanceLinks;
 	uint numCollisionEdges;
-	if (fileVersion < version_re9)
+	if (fileVersion < version_mhst3)
 		uint numTriangleGroups;
 	uint numDistanceLinkGroups;
 	uint numCollisionEdgeGroups;
@@ -191,7 +193,7 @@ typedef struct {
 	uint triangleOffset;
 	uint distanceLinkOffset;
 	uint collisionEdgeOffset;
-	if (fileVersion < version_re9)
+	if (fileVersion < version_mhst3)
 		uint triangleGroupOffset;
 	uint distanceLinkGroupOffset;
 	uint collisionEdgeGroupOffset;
@@ -314,7 +316,7 @@ typedef struct {
 		float maxRotationAngularSpeed;
 		AnimationCurveData blendAmountTranslationCurve;
 		AnimationCurveData blendAmountRotationCurve;
-		if (fileVersion >= version_re9) { // re9
+		if (fileVersion >= version_mhst3) { // re9
 			uint moreUknNum;
 			float moreUknFlt;
 			uint moreUknNum;
@@ -339,7 +341,7 @@ typedef struct {
 	float backstopRadius;
 	if (fileVersion >= version_dd2) {
 		float backstopOffset;
-		if (fileVersion >= version_re9) {
+		if (fileVersion >= version_mhst3) {
 			vec2 uknFloats;
 		}
 		int deltaPositionOffset;
@@ -404,7 +406,7 @@ typedef struct {
 	ushort indexC;
 	ushort flags;
 
-	if (fileVersion >= version_re9) {
+	if (fileVersion >= version_mhst3) {
 		// note: these look like index pairs
 		// the first one could be a mesh face index
 		// the second one can be higher than the mesh face count so it's something else
@@ -468,7 +470,7 @@ typedef struct {
 	ushort pointIndex;
 	ushort triangleIndex : 15;
 	ushort isBackFace : 1;
-} PointTriangleContactDesc;
+} PointTriangleContactDesc <read=Str("%d: %d %d", pointIndex, triangleIndex, isBackFace)>;
 
 typedef struct {
 	ushort controlPointIndexAA;
@@ -586,8 +588,8 @@ if (exists(Header.batchSubRangeTbl)) {
 		uint distanceLinkEnd;
 		uint collisionEdgeStart;
 		uint collisionEdgeEnd;
-		uint null1Start;
-		uint null1End;
+		uint pointTriangleContactDescsStart;
+		uint pointTriangleContactDescsEnd;
 		uint null2Start;
 		uint null2End;
 		uint null3Start;
@@ -763,7 +765,7 @@ if (exists(Header.vertexIdToDeformInfoIndexTbl) && Header.numTotalRenderVertices
 	int VertexIdToDeformInfoIndex[Header.numTotalRenderVertices];
 }
 
-if (exists(Header.edgeEdgeContactDescTbl)) {
+if (exists(Header.edgeEdgeContactDescTbl) && exists(Header.numEdgeEdgeContactDescs)) {
 	FSeek(Header.edgeEdgeContactDescTbl);
 	if (Header.numEdgeEdgeContactDescs)
 		EdgeEdgeContactDesc EdgeEdgeContactDescs[Header.numEdgeEdgeContactDescs] <optimize=true>;
