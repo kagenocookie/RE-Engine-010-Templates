@@ -54,7 +54,8 @@ typedef struct FoliageGroupInfo {
 	AABB bounds;
 	uint32 ukn;
     if (version > 3) {
-        uint64 uknOffset;
+        float uknFlt1;
+        float uknFlt2;
     }
 	uint64 transformsOffset;
 	uint64 meshOffset;

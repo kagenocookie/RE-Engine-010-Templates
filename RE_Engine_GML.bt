@@ -20,6 +20,9 @@ struct {
 	uint32 version;
 	uint dataCount;
 	uint texCount;
+	if (version != 858718217) {
+		uint64 padding;
+	}
 	uint64 offsetsOffset;
 	uint64 dataOffsetsOffset;
 } Header;
@@ -65,10 +68,15 @@ struct {
 			int lodCount;
 			int ukn;
 			int bufferCount;
-			int count6;
-			int count7;
-			int count8;
-			uint64 offsets[lodCount * bufferCount];
+			int uknNum;
+			int bufferCount2;
+			int uknNum2;
+			if (bufferCount > 0) {
+				uint64 offsets[lodCount * bufferCount];
+			}
+			if (bufferCount2 > 0) {
+				uint64 offsets2[lodCount * bufferCount2];
+			}
 			struct {
 				for (k = 0; k < lodCount * bufferCount; k++) {
 					FSeek(offsets[k]);
@@ -82,6 +90,20 @@ struct {
 					} InnerDataItem <read=Str("%d / %d", rowSize, fullSize), optimize=false>;
 				}
 			} InnerData;
+
+			struct {
+				for (k = 0; k < lodCount * bufferCount2; k++) {
+					FSeek(offsets2[k]);
+					struct {
+						uint64 offset;
+						uint rowSize;
+						uint fullSize;
+
+						FSeek(offset);
+						uint data[fullSize / 4];
+					} InnerDataItem <read=Str("%d / %d", rowSize, fullSize), optimize=false>;
+				}
+			} InnerData2;
 		} Data<optimize=false>;
 	}
 } Data;

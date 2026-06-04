@@ -18,12 +18,13 @@ FSeek(512);
 uint32 count;
 
 struct {
+    uint32 triggerId;
     uint32 eventId;
-    uint32 hash;
-    uint32 ukn1;
-    int32 ukn2;
+    uint32 jointHash;
+    int32 gameObjectHash;
 
-    int16 ukn3;
+    ubyte tracking;
+    ubyte rotation;
     int16 ukn4;
     int16 ukn5;
     int16 ukn6;
@@ -32,4 +33,4 @@ struct {
     int16 data1[11];
     ubyte ukn9;
     uint16 data3[7];
-} Event[count] <read=Str("%u / %u", eventId, hash)>;
+} Event[count] <read=Str("%u / %u", triggerId, eventId)>;

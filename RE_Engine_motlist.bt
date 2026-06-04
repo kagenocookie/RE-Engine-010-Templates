@@ -2466,7 +2466,7 @@ typedef struct  {
             local int c = 0;
             for (c = 0; c < extraClipCount; c++) {
                 FSeek(extraClipOffsets[c]);
-                if (HEADER.version >= 1047) start = FTell();
+                if (HEADER.version >= 1036) start = FTell();
                 CLIP_ENTRY END_CLIP;
             }
         }
@@ -2665,7 +2665,7 @@ else
         uint64  motListNameOffs <format=hex>; //NamePointer
         if (version > 60 || isMcamlist && Version >= 13)
             uint64  motlistPathOffset;
-        if (version >= 1047 || isMcamlist && Version >= 24)
+        if (version >= 1036 || isMcamlist && Version >= 24)
             uint64  motpackPathOffsetOffset;
         uint32  numOffs; FSeek(motListNameOffs); //AssetCount
         wstring motListName <open=suppress>;

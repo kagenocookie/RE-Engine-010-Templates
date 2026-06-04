@@ -116,7 +116,7 @@ struct BVHHeader {
             uint32 uknCount2;
         }
 
-        if (version > 29000) {
+        if (version > 25000) {
             uint64 uknPragmata;
         }
         uint32 treeDataSize;

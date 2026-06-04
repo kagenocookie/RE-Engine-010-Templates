@@ -682,9 +682,9 @@ if (hasUknStructs)
                 if (Header.mtrls.mtrl[i].uknStructsOffs)
                 {
                     local uint furthestAddress <hidden=true> = FTell();
-                    uint64 offsets[4];
+                    uint64 offsets[8];
 
-                    for (j = 0; j < 4; j++)
+                    for (j = 0; j < 8; j++)
                     {
                         FSeek(offsets[j]);
                         struct {

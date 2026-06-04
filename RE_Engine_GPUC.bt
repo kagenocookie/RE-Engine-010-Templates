@@ -18,15 +18,16 @@ local int i <hidden=true>, j <hidden=true>, k <hidden=true>;
 
 local int fileVersion = Atoi(SubStr(FileNameGetExtension(GetFileName()), 1));
 
-local int version_re8 <hidden=true> = 62;
-local int version_rert <hidden=true> = 65;
-local int version_re4 <hidden=true> = 221108868;
-local int version_dd2 <hidden=true> = 231011972;
+local int version_re8      <hidden=true> = 62;
+local int version_rert     <hidden=true> = 65;
+local int version_re4      <hidden=true> = 221108868;
+local int version_dd2      <hidden=true> = 231011972;
 local int version_mhws_min <hidden=true> = 241111744;
 local int version_mhws_max <hidden=true> = 241111760;
-local int version_mhst3 <hidden=true> = 250604242;
-local int version_re9 <hidden=true> = 250925365;
+local int version_mhst3    <hidden=true> = 250604242;
+local int version_re9      <hidden=true> = 250925365;
 local int version_pragmata <hidden=true> = 251121978;
+local int version_oniws    <hidden=true> = 251215760;
 
 typedef ushort NormalizedShort <read=ReadNormalizedShort>;
 
@@ -51,7 +52,10 @@ enum ClothCalculateMode {
 
 struct {
 	uint signature;
-	if (fileVersion >= version_re9) { // re9
+	if (fileVersion >= version_oniws) {
+		uint meshResourcePathHash;
+		uint cpuMemorySize;
+	} else if (fileVersion >= version_re9) { // re9
 		uint cpuMemorySize;
 		uint hash1;
 		uint hash2;
@@ -75,10 +79,8 @@ struct {
 	uint numCollisionEdgeGroups;
 	uint numPartInfos;
 	uint numBatchInfos;
-	if (fileVersion > version_mhws_max)
-		uint numBatchSubInfos;
 	uint numConfigInfos;
-	if (fileVersion >= version_mhws_min && fileVersion <= version_mhws_max)
+	if (fileVersion >= version_mhws_min)
 		uint numBatchSubInfos;
 	uint numDeformInfos;
 	if (fileVersion >= version_mhws_min) {
@@ -87,10 +89,10 @@ struct {
 		int numTotalRenderVertices;
 		uint numUkn1;
 		uint numBatchGroup;
-		uint null;
-		uint numUkn2;
+		uint numWeightedContactDescs1;
+		uint numWeightedContactDescs2;
 		int lodCount;
-		if (fileVersion <= version_mhst3) {
+		if (fileVersion <= version_mhst3 || fileVersion >= version_oniws) {
 			uint numDeformBones;
 			uint null;
 		} else {
@@ -164,16 +166,23 @@ struct {
 			uint numVertexDeformInfos;
 		}
 	} else {
-		uint64 pointTriangleContactDescTbl;
-		if (fileVersion >= version_mhws_min) {
-			// note: some of these are probably existing stuff moved around for reasons beyond comprehension
-			uint64 offsUnused1;
-			uint64 offsUnused2;
+		if (fileVersion >= version_oniws) {
+			uint64 pointTriangleContactDescTbl;
+			uint64 edgeEdgeContactDescTbl;
+			uint64 weightedContactDescsTbl1;
+			uint64 weightedContactDescsTbl2;
+		} else {
+			if (fileVersion >= version_mhws_min) {
+				uint64 offsUnused1;
+				uint64 offsUnused2;
+			}
+			uint64 pointTriangleContactDescTbl;
+			uint64 edgeEdgeContactDescTbl;
 		}
-		uint64 edgeEdgeContactDescTbl;
-		if (fileVersion >= version_re9 || fileVersion >= version_mhws_min && fileVersion <= version_mhws_max) {
+		if (fileVersion == version_re9 || fileVersion == version_pragmata || fileVersion >= version_mhws_min && fileVersion <= version_mhws_max) {
 			uint64 offsUnused3; // TODO verify
 		}
+
 		uint64 deformInfoTbl;
 		uint64 blendInfoTbl;
 		if (fileVersion >= version_mhws_min) {
@@ -522,15 +531,17 @@ typedef struct {
 	Float3x4 Matrices[Header.numDeformWeights];
 } MeshMultiJointBlendMatrices;
 
+typedef struct  {
+	// TODO not 100% sure about the struct yet but it seems kinda reasonable like this
+	short key1 : 15;
+	short key2 : 1;
+	ushort triangleIndex;
+	uint weight : 8;
+	uint ukn : 24;
+} DeformBlendInfoPair <read=Str("%s%d %d => %f  / %d", key2 == 1 ? "- " : "+", key1, triangleIndex, weight/255.0f, ukn)>;
+
 typedef struct {
-	struct {
-		// TODO not 100% sure about the struct yet but it seems kinda reasonable like this
-		short key1 : 15;
-		short key2 : 1;
-		ushort triangleIndex;
-		uint weight : 8;
-		uint ukn : 24;
-	} ValuePair[Header.numDeformWeights] <read=Str("%s%d %d => %f  / %d", key2 == 1 ? "- " : "+", key1, triangleIndex, weight/255.0f, ukn)>;
+	DeformBlendInfoPair ValuePair[Header.numDeformWeights];
 } DeformBlendInfoPairs <optimize=true, read=ValuePair[0].key1>;
 
 enum DeformType {
@@ -590,25 +601,27 @@ if (exists(Header.batchSubRangeTbl)) {
 	FSeek(Header.batchSubRangeTbl);
 	struct BatchSubRange {
 		uint controlPointStart;
-		uint controlPointEnd;
+		uint controlPointCount;
 		uint triangleStart;
-		uint triangleEnd;
+		uint triangleCount;
 		uint distanceLinkStart;
-		uint distanceLinkEnd;
+		uint distanceLinkCount;
 		uint collisionEdgeStart;
-		uint collisionEdgeEnd;
+		uint collisionEdgeCount;
 		uint pointTriangleContactDescsStart;
-		uint pointTriangleContactDescsEnd;
+		uint pointTriangleContactDescsCount;
 		uint null2Start;
-		uint null2End;
+		uint null2Count;
 		uint null3Start;
-		uint null3End;
+		uint null3Count;
 		uint deformInfoStart;
-		uint deformInfoEnd;
-		uint null4Start;
-		uint null4End;
+		uint deformInfoCount;
+		// note: no idea what these two are. see oni:wots ch001_00_01.gpuc
+		// range1 has count1 == range0.controlPointCount, range2 has count2 == range1.cpCount, they both add up to weightedContactDesc1 count
+		uint weightedContacts1Count;
+		uint weightedContacts1Count2;
 		uint batchStart;
-		uint batchEnd;
+		uint batchCount;
 	} BatchSubRanges[Header.numBatchGroup];
 }
 
@@ -667,6 +680,16 @@ if (exists(Header.collisionOBBTbl)) {
 		struct {
 			CollisionOBB CollisionOBBs[Header.numCollisionOBBs];
 		} CollisionOBBs;
+}
+
+if (exists(Header.weightedContactDescsTbl1) && Header.numWeightedContactDescs1) {
+	FSeek(Header.weightedContactDescsTbl1);
+	DeformBlendInfoPair WeightedContactDescs1[Header.numWeightedContactDescs1];
+}
+
+if (exists(Header.weightedContactDescsTbl2) && Header.numWeightedContactDescs2) {
+	FSeek(Header.weightedContactDescsTbl2);
+	DeformBlendInfoPair WeightedContactDescs2[Header.numWeightedContactDescs2];
 }
 
 FSeek(Header.pointTriangleContactDescTbl);
