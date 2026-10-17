@@ -28,6 +28,10 @@ struct {
 	uint dataCount;
 	uint ukn2;
 	uint ukn3;
+	if (version >= 251211588) {
+		uint ukn4;
+		uint ukn5;
+	}
 
 	float start_x, start_z;
 
@@ -46,11 +50,15 @@ struct {
 	uint index;
 	uint ukn1;
 	uint ukn2;
-	uint ukn3;
-	uint valueSize;
+	uint tileMode;
+	uint format;
 	uint valueCount;
 	uint totalBlockSize;
 	uint paddedStrideBytes;
 	uint mask;
 	uint ukn9;
-} GtlContentHeaders[Header.dataCount];
+	if (Header.version >= 251211588) {
+		int ukn10;
+		uint ukn11;
+	}
+} GtlContentHeaders[Header.dataCount]<optimize=true>;

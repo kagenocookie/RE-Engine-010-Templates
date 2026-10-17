@@ -19,18 +19,21 @@ struct {
 	uint magic;
 	uint32 version;
 	uint ukn1;
-	uint count1;
+	uint subdivisionCount;
 	uint indicesCount;
-	uint count3;
-	uint count4;
+	uint count1;
+	uint count2;
 	uint padding;
 	uint64 indicesOffset;
 	uint64 heightRangesOffset;
+	if (version >= 251211576) {
+		uint64 uknDataOffset;
+	}
 	uint64 dataOffset;
 } Header;
 
 // values/sizes are derived from a parent .grnd file
-if (version == 858718223) {
+if (version == 858718223 || version == 251211576) {
 	// dd2: world00.grnd
 	local uint32 size1 = 33800;
 	local uint32 stride1 = 260;
@@ -54,17 +57,25 @@ FSeek(Header.heightRangesOffset);
 struct {
 	float minHeight;
 	float maxHeight;
-} HeightRanges[Header.count4] <read=Str("%f - %f", minHeight, maxHeight)>;
+} HeightRanges[Header.count2] <read=Str("%f - %f", minHeight, maxHeight)>;
+
+if (exists(Header.uknDataOffset)) {
+	FSeek(Header.uknDataOffset);
+	ubyte newData[Header.count1];
+}
 
 FSeek(Header.dataOffset);
 struct {
 	uint64 dataOffset;
-	local uint64 pos = FTell();
+	local uint64 pos<hidden=true> = FTell();
 	FSeek(dataOffset);
 	struct {
-		ubyte index;
-		ubyte b, c, d;
-		uint ukn[7];
+		ubyte byteCount;
+		if (version == 858718223) {
+			ubyte ukn[23];
+		} else {
+			ubyte bytes[byteCount - 1];
+		}
 
 		struct {
 			uint16 heights[stride1 / 2]<read=Str("%f", this/65536.0f), optimize=true>;
@@ -84,6 +95,6 @@ struct {
 			uint8 row[stride4];
 		} Indices[size4 / stride4] <optimize=true>;
 
-	} Data;
+	} Data <read=byteCount>;
 	FSeek(pos);
-} Items[Header.count3] <optimize=false, read=Str("%d (%d)", Data.index & 0x3, Data.index)>;
+} Items[Header.count1] <optimize=false, read=Data.byteCount>;

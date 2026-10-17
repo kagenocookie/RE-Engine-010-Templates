@@ -20,11 +20,13 @@ struct {
 	uint32 version;
 	uint dataCount;
 	uint texCount;
-	if (version != 858718217) {
-		uint64 padding;
-	}
+	uint32 indicesCount;
+	uint32 padding;
 	uint64 offsetsOffset;
 	uint64 dataOffsetsOffset;
+	if (version >= 251211568) { // dd2 TU3.2
+		uint64 endIndicesOffset;
+	}
 } Header;
 
 FSeek(Header.offsetsOffset);
@@ -67,46 +69,37 @@ struct {
 			int countZ;
 			int lodCount;
 			int ukn;
-			int bufferCount;
 			int uknNum;
-			int bufferCount2;
 			int uknNum2;
+			int bufferCount;
+			int uknNum3;
 			if (bufferCount > 0) {
-				uint64 offsets[lodCount * bufferCount];
+				// there's a meaningless extra level of indirection here because the structs are fixed size anyway
+				uint64 bufferOffsets[lodCount * bufferCount];
 			}
-			if (bufferCount2 > 0) {
-				uint64 offsets2[lodCount * bufferCount2];
-			}
+
+			struct {
+				uint64 offset;
+				uint rowSize;
+				uint fullSize;
+			} ItemHeaders[lodCount * bufferCount];
+
 			struct {
 				for (k = 0; k < lodCount * bufferCount; k++) {
-					FSeek(offsets[k]);
+					FSeek(ItemHeaders[k].offset);
 					struct {
-						uint64 offset;
-						uint rowSize;
-						uint fullSize;
-
-						FSeek(offset);
-						uint data[fullSize / 4];
-					} InnerDataItem <read=Str("%d / %d", rowSize, fullSize), optimize=false>;
+						uint data[ItemHeaders[k].fullSize / 4];
+					} BufferItem;
 				}
 			} InnerData;
-
-			struct {
-				for (k = 0; k < lodCount * bufferCount2; k++) {
-					FSeek(offsets2[k]);
-					struct {
-						uint64 offset;
-						uint rowSize;
-						uint fullSize;
-
-						FSeek(offset);
-						uint data[fullSize / 4];
-					} InnerDataItem <read=Str("%d / %d", rowSize, fullSize), optimize=false>;
-				}
-			} InnerData2;
 		} Data<optimize=false>;
 	}
 } Data;
+
+if (exists(Header.endIndicesOffset) && Header.indicesCount) {
+	FSeek(Header.endIndicesOffset);
+	uint32 endIndices[Header.indicesCount];
+}
 
 // FSeek(Header.stringOffset);
 // struct {
